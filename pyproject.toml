@@ -5,8 +5,28 @@ description = "Worker package for FuncNodes"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
- "funcnodes-core>=0.3.21"
+ "funcnodes-core>=0.3.22"
  ]
+
+[dependency-groups]
+dev = [
+    "coverage>=7.6.10",
+    "pre-commit>=4.1.0",
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.3",
+    "snakeviz>=2.2.2",
+    "vulture>=2.14",
+    "funcnodes-worker[all]",
+]
+
+[project.optional-dependencies]
+    subprocess-monitor = ["subprocess-monitor>=0.2.0"]
+    http = ["aiohttp","requests","aiohttp_cors"]	
+    venv = ["venvmngr>=0.1.14"]
+    all = ["funcnodes-worker[venv,http,subprocess-monitor]"]
+
+
+
 
 [project.license]
 text = "AGPL-3.0"
