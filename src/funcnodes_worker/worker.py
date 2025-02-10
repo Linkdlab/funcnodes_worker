@@ -24,7 +24,11 @@ import importlib.util
 import inspect
 from uuid import uuid4
 
-import psutil
+try:
+    import psutil
+except (ImportError, ModuleNotFoundError):
+    psutil = None
+
 import funcnodes_core as fn
 from funcnodes_worker.loop import LoopManager, NodeSpaceLoop, CustomLoop
 from funcnodes_worker.external_worker import (
@@ -739,7 +743,7 @@ class Worker(ABC):
                 # get the pid from the process file
                 with open(self._process_file, "r") as f:
                     pid = f.read()
-                if pid != "":
+                if pid != "" and psutil is not None:
                     try:
                         pid = int(pid)
                         if psutil.pid_exists(pid):
