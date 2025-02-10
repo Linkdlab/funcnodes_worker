@@ -29,10 +29,12 @@ except (ModuleNotFoundError, ImportError):
 
 try:
     import requests
+    import aiohttp
 
     USE_HTTP = True
 except (ModuleNotFoundError, ImportError):
     requests = None
+    aiohttp = None
     USE_HTTP = False
 
 try:
@@ -43,6 +45,23 @@ except (ModuleNotFoundError, ImportError):
     funcnodes = None
     IN_FUNCNODES = False
 
+
+class DependencyError(Exception):
+    pass
+
+
+def placeholder_function(
+    name,
+    dep,
+):
+    def _f(*args, **kwargs):
+        raise DependencyError(
+            f"{name} is not installed, please install funcnodes_worker[{dep}]"
+        )
+
+    return _f
+
+
 __all__ = [
     "FUNCNODES_REACT",
     "FUNCNODES_REACT_PLUGIN",
@@ -52,6 +71,7 @@ __all__ = [
     "subprocess_monitor",
     "USE_SUBPROCESS_MONITOR",
     "requests",
+    "aiohttp",
     "USE_HTTP",
     "funcnodes",
     "IN_FUNCNODES",
