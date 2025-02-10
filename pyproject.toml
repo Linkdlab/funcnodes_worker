@@ -1,0 +1,32 @@
+[project]
+name = "funcnodes-worker"
+version = "0.1.0"
+description = "Worker package for FuncNodes"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+ "funcnodes-core>=0.3.21"
+ ]
+
+[project.license]
+text = "AGPL-3.0"
+
+[project.urls]
+homepage  = "https://github.com/Linkdlab/funcnodes_worker"
+source  = "https://github.com/Linkdlab/funcnodes_worker"
+tracker  = "https://github.com/Linkdlab/funcnodes_worker/issues"
+download = "https://pypi.org/project/funcnodes_worker/#files"
+
+[build-system]
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.vulture]
+min_confidence = 80
+paths = ["src"]
