@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import logging
 
 
-from .._opts import venvmngr, USE_VENV
+from .._opts import venvmngr, USE_VENV, requests
 
 
 @dataclass
@@ -49,6 +49,8 @@ AVAILABLE_REPOS: Dict[str, AvailableRepo] = {}
 
 
 def load_repo_csv():
+    if requests is None:
+        return
     url = "https://raw.githubusercontent.com/Linkdlab/funcnodes_repositories/refs/heads/main/funcnodes_modules.csv"
     resp = requests.get(url, timeout=1)
     if resp.status_code != 200:
