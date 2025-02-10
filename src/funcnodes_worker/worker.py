@@ -50,7 +50,7 @@ from funcnodes_core.utils import saving
 from funcnodes_core.lib import find_shelf, ShelfDict
 from exposedfunctionality import exposed_method, get_exposed_methods
 from typing_extensions import deprecated
-import subprocess_monitor
+
 import threading
 from weakref import WeakSet
 import io
@@ -60,7 +60,14 @@ import warnings
 from pathlib import Path
 
 from funcnodes_worker.utils.messages import worker_event_message
-from ._opts import USE_VENV, venvmngr, FUNCNODES_REACT, FUNCNODES_REACT_PLUGIN
+from ._opts import (
+    USE_VENV,
+    venvmngr,
+    FUNCNODES_REACT,
+    FUNCNODES_REACT_PLUGIN,
+    subprocess_monitor,
+    USE_SUBPROCESS_MONITOR,
+)
 from .utils.modules import AVAILABLE_REPOS, reload_base, install_repo, try_import_module
 from funcnodes_core.utils.files import write_json_secure
 
@@ -1869,7 +1876,10 @@ class Worker(ABC):
         self.initialize_nodespace()
         self._save_disabled = False
 
-        if os.environ.get("SUBPROCESS_MONITOR_PORT", None) is not None:
+        if (
+            os.environ.get("SUBPROCESS_MONITOR_PORT", None) is not None
+            and USE_SUBPROCESS_MONITOR
+        ):
             if not os.environ.get("SUBPROCESS_MONITOR_KEEP_RUNNING"):
                 subprocess_monitor.call_on_manager_death(
                     self.stop,
