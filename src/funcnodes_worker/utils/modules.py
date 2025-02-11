@@ -1,9 +1,9 @@
-from __future__ import annotations
+from __future__ import annotations 
 import csv
 import importlib
 import subprocess
 import sys
-import pkg_resources
+import pkg_resources  # Note: pkg_resources is deprecated in favor of importlib.metadata
 
 from typing import List, Optional, Dict
 from funcnodes_core import AVAILABLE_MODULES, setup, FUNCNODES_LOGGER
@@ -12,12 +12,24 @@ from funcnodes_core.utils.plugins import InstalledModule
 from dataclasses import dataclass, field
 import logging
 
-
 from .._opts import venvmngr, USE_VENV, requests
 
 
 @dataclass
 class AvailableRepo:
+    """
+    Data class representing an available repository/package.
+    
+    Fields:
+      - package_name: The package's name.
+      - installed: Flag indicating whether the package is installed.
+      - version: Version of the installed package.
+      - description: A short description of the package.
+      - entry_point__module, entry_point__shelf, entry_point__external_worker: Optional entry points for different functionalities.
+      - moduledata: An instance of InstalledModule containing module-specific data.
+      - last_updated, homepage, source, summary: Additional metadata.
+      - releases: A list of available releases/versions.
+    """
     package_name: str
     installed: bool
     version: str = ""
@@ -34,39 +46,60 @@ class AvailableRepo:
 
     @classmethod
     def from_dict(cls, data):
+        """
+        Create an AvailableRepo instance from a dictionary.
+        Ensures defaults for missing keys and processes the 'releases' field.
+        """
+        # Ensure 'installed' key exists; default to False if missing
         data.setdefault("installed", False)
+        # Ensure 'releases' key exists; default to empty string if missing
         data.setdefault("releases", "")
+        # Process the releases: split by comma and strip whitespace
         releases = data["releases"]
         releases = releases.strip().split(",")
         releases = [v.strip() for v in releases]
         releases = [v for v in releases if v]
         data["releases"] = releases
 
+        # Only pass the keys that are defined in the dataclass fields
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
+# Global dictionary mapping package names to their repository information
 AVAILABLE_REPOS: Dict[str, AvailableRepo] = {}
 
 
 def load_repo_csv():
+    """
+    Load repository metadata from a remote CSV file and update AVAILABLE_REPOS.
+    """
     if requests is None:
+        # If requests module is not available, do nothing.
         return
+    # URL pointing to the CSV file hosted on GitHub
     url = "https://raw.githubusercontent.com/Linkdlab/funcnodes_repositories/refs/heads/main/funcnodes_modules.csv"
     resp = requests.get(url, timeout=1)
     if resp.status_code != 200:
+        # If the HTTP request fails, exit the function.
         return
+    # Read the CSV data into a dictionary reader
     reader = csv.DictReader(resp.text.splitlines(), delimiter=",")
     for line in reader:
         try:
+            # Create an AvailableRepo instance from the CSV row
             data = AvailableRepo.from_dict(line)
             if data.package_name in AVAILABLE_REPOS:
+                # If there is existing module data, carry it over.
                 moddata = AVAILABLE_REPOS[data.package_name].moduledata
                 data.moduledata = moddata
             if data.moduledata:
+                # Mark as installed if module data is present.
                 data.installed = True
+            # Update the global dictionary with this repository info
             AVAILABLE_REPOS[data.package_name] = data
 
         except Exception as e:
+            # Log any exceptions that occur during parsing
             FUNCNODES_LOGGER.exception(e)
 
 
@@ -78,19 +111,21 @@ def install_package(
     logger: Optional[logging.Logger] = None,
 ):
     """
-    Install a Python package using pip.
+    Install a Python package using pip (or an environment manager if provided).
 
     Parameters:
-    - package_name (str): Name of the package to install.
-    - version (str, optional): Specific version to install. Defaults to None.
-    - upgrade (bool, optional): Whether to upgrade the package if it's already installed. Defaults to False.
+      - package_name (str): Name of the package to install.
+      - version (str, optional): Specific version to install. Defaults to None.
+      - upgrade (bool, optional): Whether to upgrade if already installed. Defaults to False.
+      - env_manager (VenvManager, optional): Custom environment manager for installation.
+      - logger (Logger, optional): Logger for output messages.
 
     Returns:
-    - bool: True if installation was successful or the package is already installed, False otherwise.
+      - bool: True if installation succeeded or package is already installed, False otherwise.
     """
     if env_manager is None:
         try:
-            # Check if the package is already installed
+            # Check if the package is already installed using pkg_resources
             pkg_resources.get_distribution(package_name)
             if upgrade:
                 if logger:
@@ -101,6 +136,7 @@ def install_package(
                     print(
                         f"Package '{package_name}' is already installed. Upgrading..."
                     )
+                # Prepare pip command to upgrade the package
                 install_cmd = [
                     sys.executable,
                     "-m",
@@ -116,11 +152,12 @@ def install_package(
                     print(f"Package '{package_name}' is already installed.")
                 return True
         except pkg_resources.DistributionNotFound:
-            # Package is not installed; proceed to install
+            # If not installed, prepare pip command to install the package
             install_cmd = [sys.executable, "-m", "pip", "install", package_name]
 
-        # If a specific version is requested, modify the install command
+        # If a specific version is requested, modify the command accordingly.
         if version:
+            # If the version string already starts with a comparison operator, use it directly.
             if version[0] in ("=", "<", ">", "!"):
                 version = version
             else:
@@ -128,13 +165,16 @@ def install_package(
             install_cmd[-1] = f"{package_name}{version}"
 
         try:
+            # Execute the pip command as a subprocess.
             subprocess.check_call(install_cmd)
             return True
         except subprocess.CalledProcessError:
+            # Return False if pip returns an error.
             return False
+    # If an environment manager is provided, use it to install the package.
     lines = []
     try:
-
+        # Callback function to collect output lines.
         def cb(line):
             lines.append(line)
 
@@ -146,22 +186,21 @@ def install_package(
             stdout_callback=cb,
         )
         if len(lines) > 0:
-            lines = "\n".join(lines)
+            output = "\n".join(lines)
             if logger:
-                logger.info(lines)
+                logger.info(output)
             else:
-                print(lines)
+                print(output)
         return True
     except Exception as e:
         if logger:
             logger.error(e)
         if len(lines) > 0:
-            lines = "\n".join(lines)
+            output = "\n".join(lines)
             if logger:
-                logger.error(lines)
+                logger.error(output)
             else:
-                print(lines)
-
+                print(output)
         return False
 
 
@@ -172,15 +211,29 @@ def install_repo(
     env_manager: Optional[venvmngr.VenvManager] = None,
     logger: Optional[logging.Logger] = None,
 ) -> Optional[AvailableRepo]:
-    if package_name not in AVAILABLE_REPOS:
-        return False
+    """
+    Install a repository package and update its repository info.
 
+    Parameters:
+      - package_name (str): Name of the repository package.
+      - upgrade (bool): Whether to upgrade if already installed.
+      - version: Specific version to install.
+      - env_manager: Optional environment manager for installation.
+      - logger: Optional logger for messages.
+
+    Returns:
+      - An AvailableRepo instance if installation and import succeeded, or None otherwise.
+    """
+    if package_name not in AVAILABLE_REPOS:
+        return False  # Repository metadata not found
+
+    # Attempt to install the package
     if not install_package(
         package_name, version, upgrade, env_manager=env_manager, logger=logger
     ):
         return None
 
-    # reload imports
+    # Reload the base configuration (without reloading repos from CSV)
     reload_base(with_repos=False)
 
     if package_name in AVAILABLE_REPOS:
@@ -191,6 +244,17 @@ def install_repo(
 
 
 def try_import_module(name: str) -> Optional[AvailableRepo]:
+    """
+    Attempt to import a module by its name and update its repository info.
+
+    The function first looks up the repository info in AVAILABLE_REPOS by trying
+    several key formats (with underscores or hyphens). If not found, it tries to import
+    the module dynamically and then creates a new AvailableRepo entry.
+
+    Returns:
+      - An AvailableRepo instance if the import is successful, or None otherwise.
+    """
+    # Try to find the repo using different name formats
     repo = (
         AVAILABLE_REPOS.get(name)
         or AVAILABLE_REPOS.get(name.replace("_", "-"))
@@ -198,33 +262,52 @@ def try_import_module(name: str) -> Optional[AvailableRepo]:
     )
     if not repo:
         try:
+            # Normalize the module name: replace hyphens with underscores
             modulename = name.replace("-", "_")
             module = importlib.import_module(modulename)
+            # Process the module using the setup_module function to generate module data
             module_data = setup_module(InstalledModule(name=name, module=module))
 
+            # Create a new repo entry and mark it as installed
             repo = AvailableRepo(
                 package_name=name, installed=True, moduledata=module_data
             )
+            # Use a normalized key in the global dictionary
             AVAILABLE_REPOS[name.replace("_", "-")] = repo
         except Exception as e:
             print(f"Error importing {name}: {e}")
 
+    # Return the repository info after trying to import (using normalized name)
     return try_import_repo(name.replace("_", "-"))
 
 
 def try_import_repo(name: str) -> Optional[AvailableRepo]:
+    """
+    Try to import the module associated with the repository.
+
+    If the module has already been imported and module data is available,
+    simply return the repository info. Otherwise, attempt to import the module,
+    process it with setup_module, and update the repository info.
+
+    Returns:
+      - The AvailableRepo instance if successful, or None otherwise.
+    """
     if name not in AVAILABLE_REPOS:
         return None
 
     repo = AVAILABLE_REPOS[name]
     if repo.moduledata:
+        # Module already imported; nothing more to do.
         return repo
     try:
+        # Normalize the module name for import
         modulename = repo.package_name.replace("-", "_")
         module = importlib.import_module(modulename)
 
+        # Process the module to get its metadata
         moduledata = setup_module(InstalledModule(name=modulename, module=module))
 
+        # Update the repo entry with the module data
         repo.moduledata = moduledata
         return repo
     except Exception as e:
@@ -233,24 +316,34 @@ def try_import_repo(name: str) -> Optional[AvailableRepo]:
 
 
 def reload_base(with_repos=True):
+    """
+    Reload the core setup and update repository/module information.
+
+    This function calls the global setup function, reloads repository data
+    from the CSV (if requested), and synchronizes AVAILABLE_REPOS with the data
+    from AVAILABLE_MODULES (which holds installed module data).
+    """
+    # Initialize or refresh the core setup
     setup()
     if with_repos:
         try:
             load_repo_csv()
         except Exception:
             pass
+    # Update the 'installed' flag for each repo based on the presence of module data
     for repo in AVAILABLE_REPOS.values():
         if repo.moduledata:
             repo.installed = True
         else:
             repo.installed = False
 
+    # Loop through the installed modules and update/add corresponding repo entries.
     for modulename, moduledata in AVAILABLE_MODULES.items():
-        modulename = modulename.replace("_", "-")  # replace _ with - for pypi
+        # Normalize module name to use hyphens (as seen on PyPI)
+        modulename = modulename.replace("_", "-")
         if modulename in AVAILABLE_REPOS:
             AVAILABLE_REPOS[modulename].installed = True
             AVAILABLE_REPOS[modulename].moduledata = moduledata
-
         else:
             AVAILABLE_REPOS[modulename] = AvailableRepo(
                 package_name=modulename,
@@ -258,7 +351,10 @@ def reload_base(with_repos=True):
                 summary=moduledata.description,
                 moduledata=moduledata,
             )
+    # Finally, update the version information for each repo if available.
     for modulename, repo in AVAILABLE_REPOS.items():
         if repo.moduledata:
             if repo.moduledata.version:
                 repo.version = repo.moduledata.version
+
+# Note: pkg_resources is deprecated. Consider using importlib.metadata in new code.
