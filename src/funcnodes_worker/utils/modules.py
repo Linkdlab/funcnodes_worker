@@ -1,9 +1,9 @@
-from __future__ import annotations 
+from __future__ import annotations
 import csv
 import importlib
 import subprocess
 import sys
-import pkg_resources  # Note: pkg_resources is deprecated in favor of importlib.metadata
+import importlib.metadata
 
 from typing import List, Optional, Dict
 from funcnodes_core import AVAILABLE_MODULES, setup, FUNCNODES_LOGGER
@@ -19,7 +19,7 @@ from .._opts import venvmngr, USE_VENV, requests
 class AvailableRepo:
     """
     Data class representing an available repository/package.
-    
+
     Fields:
       - package_name: The package's name.
       - installed: Flag indicating whether the package is installed.
@@ -30,6 +30,7 @@ class AvailableRepo:
       - last_updated, homepage, source, summary: Additional metadata.
       - releases: A list of available releases/versions.
     """
+
     package_name: str
     installed: bool
     version: str = ""
@@ -125,8 +126,8 @@ def install_package(
     """
     if env_manager is None:
         try:
-            # Check if the package is already installed using pkg_resources
-            pkg_resources.get_distribution(package_name)
+            # Check if the package is already installed using importlib.metadata
+            importlib.metadata.version(package_name)
             if upgrade:
                 if logger:
                     logger.info(
@@ -151,7 +152,7 @@ def install_package(
                 else:
                     print(f"Package '{package_name}' is already installed.")
                 return True
-        except pkg_resources.DistributionNotFound:
+        except importlib.metadata.PackageNotFoundError:
             # If not installed, prepare pip command to install the package
             install_cmd = [sys.executable, "-m", "pip", "install", package_name]
 
@@ -356,5 +357,3 @@ def reload_base(with_repos=True):
         if repo.moduledata:
             if repo.moduledata.version:
                 repo.version = repo.moduledata.version
-
-# Note: pkg_resources is deprecated. Consider using importlib.metadata in new code.
