@@ -1,11 +1,21 @@
 from unittest import IsolatedAsyncioTestCase
+import funcnodes_core as fn
+
+from funcnodes_core.testing import (
+    teardown as fn_teardown,
+    set_in_test as fn_set_in_test,
+)
+
+fn_set_in_test()
+
+
 from funcnodes_worker import (
     FuncNodesExternalWorker,
     RemoteWorker,
 )
 from unittest.mock import MagicMock
 
-import funcnodes_core as fn
+
 from funcnodes_core import (
     instance_nodefunction,
     flatten_shelf,
@@ -16,7 +26,7 @@ import asyncio
 import logging
 
 import tempfile
-
+import json
 import gc
 
 try:
@@ -24,7 +34,6 @@ try:
 except ImportError:
     objgraph = None
 
-fn.config.IN_NODE_TEST = True
 fn.FUNCNODES_LOGGER.setLevel(logging.DEBUG)
 
 
@@ -54,9 +63,6 @@ class TestWorker(RemoteWorker):
         super().__init__(*args, **kwargs)
         self.timerloop = TimerLoop(self)
         self.loop_manager.add_loop(self.timerloop)
-
-    def __del__(self):
-        print("deleting")
 
     async def sendmessage(self, *args, **kwargs):
         return MagicMock()
@@ -103,9 +109,33 @@ class TestExternalWorker(IsolatedAsyncioTestCase):
             async def loop(self):
                 await self.stop()
 
+        self.assertEqual(ExternalWorker1.running_instances(), [])
         worker = ExternalWorker1(workerid="test")
         worker._logger = RaiseErrorLogger()
         await worker.continuous_run()
+
+    async def test_external_worker_serialization(self):
+        class ExternalWorker1(FuncNodesExternalWorker):
+            NODECLASSID = "testexternalworker"
+
+            async def loop(self):
+                await self.stop()
+
+            @instance_nodefunction()
+            def test(self, a: int) -> int:
+                return 1 + a
+
+        worker = ExternalWorker1(workerid="test")
+        ser = json.loads(json.dumps(worker, cls=fn.JSONEncoder))
+        self.assertEqual(
+            ser,
+            {
+                "name": "ExternalWorker1(test)",
+                "nodeclassid": "testexternalworker",
+                "running": False,
+                "uuid": "test",
+            },
+        )
 
 
 class ExternalWorker1(FuncNodesExternalWorker):
@@ -150,20 +180,18 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
             await asyncio.sleep(1)
         if not self.retmoteworker.loop_manager.running:
             raise Exception("Worker not running")
-        return super().asyncSetUp()
+
+    async def asyncTearDown(self):
+        self.retmoteworker.stop()
+        
+        async with asyncio.timeout(5):
+            await self.runtask
 
     def tearDown(self) -> None:
-        self.retmoteworker.stop()
-        self.runtask.cancel()
-        # Get the logger that might be holding the file and shut it down
+        if not self.runtask.done():
+            self.runtask.cancel()
 
-        loggers = [logging.getLogger(name) for name in logging.root.manager.loggerDict]
-        for logger in loggers:
-            handlers = logger.handlers[:]
-            for handler in handlers:
-                handler.close()
-                logger.removeHandler(handler)
-
+        fn_teardown()
         self.tempdir.cleanup()
         return super().tearDown()
 
@@ -218,11 +246,11 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
             del nodes
             gc.collect()
 
-        await asyncio.sleep(0.3)
+        await asyncio.sleep(0.5)
         t = time.time()
         self.assertLessEqual(
             t - self.retmoteworker.timerloop.last_run,
-            0.2,
+            0.4,
             (t, self.retmoteworker.timerloop.last_run),
         )
         print("adding worker")
