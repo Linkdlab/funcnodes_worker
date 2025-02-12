@@ -26,8 +26,8 @@ from uuid import uuid4
 
 try:
     import psutil
-except (ImportError, ModuleNotFoundError):
-    psutil = None
+except (ImportError, ModuleNotFoundError):  # pragma: no cover
+    psutil = None  # pragma: no cover
 
 import funcnodes_core as fn
 from funcnodes_worker.loop import LoopManager, NodeSpaceLoop, CustomLoop
@@ -169,10 +169,10 @@ class LocalWorkerLookupLoop(CustomLoop):
     class WorkerNotFoundError(Exception):
         pass
 
-    def __init__(self, client: Worker, path=None, delay=5) -> None:
+    def __init__(self, client: Worker, path: Optional[Path] = None, delay=5) -> None:
         super().__init__(delay)
 
-        self._path = path
+        self._path = Path(path).absolute() if path is not None else None
         self._client: Worker = client
         self.worker_classes: List[Type[FuncNodesExternalWorker]] = []
         self._parsed_files = []
@@ -184,17 +184,17 @@ class LocalWorkerLookupLoop(CustomLoop):
         else:
             p = self._path
 
-        if not os.path.exists(p):
+        if not p.exists():
             os.mkdir(p)
 
-        if p not in sys.path:
-            sys.path.insert(0, p)
+        if str(p) not in sys.path:
+            sys.path.insert(0, str(p))
 
         return p
 
     @path.setter
-    def path(self, path):
-        self._path = path
+    def path(self, path: Path):
+        self._path = Path(path).absolute()
 
     async def loop(self):
         # get all .py files in path (deep)
@@ -207,32 +207,27 @@ class LocalWorkerLookupLoop(CustomLoop):
 
         await asyncio.gather(*tasks)
 
-        for root, dirs, files in os.walk(self.path):  # pylint: disable=unused-variable
-            for file in files:
-                if file.endswith(".py") and file not in self._parsed_files:
-                    module_name = file[:-3]
-                    spec = importlib.util.spec_from_file_location(
-                        module_name, os.path.join(root, file)
-                    )
-                    if spec is None:
-                        continue
-                    if spec.loader is None:
-                        continue
-                    module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(module)
-                    for (
-                        name,  # pylint: disable=unused-variable
-                        obj,
-                    ) in inspect.getmembers(module):
-                        if (
-                            inspect.isclass(obj)
-                            and issubclass(obj, FuncNodesExternalWorker)
-                            and obj != FuncNodesExternalWorker
-                        ):
-                            if obj not in self.worker_classes:
-                                self.worker_classes.append(obj)
+        for root in Path(self.path).rglob("*.py"):
+            if root.name not in self._parsed_files:
+                module_name = root.stem  # Get filename without .py extension
+                spec = importlib.util.spec_from_file_location(module_name, root)
 
-                    self._parsed_files.append(file)
+                if spec is None or spec.loader is None:
+                    continue
+
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+
+                for name, obj in inspect.getmembers(module):
+                    if (
+                        inspect.isclass(obj)
+                        and issubclass(obj, FuncNodesExternalWorker)
+                        and obj != FuncNodesExternalWorker
+                    ):
+                        if obj not in self.worker_classes:
+                            self.worker_classes.append(obj)
+
+                self._parsed_files.append(root.name)
 
         # import gc
         # import objgraph
@@ -537,10 +532,10 @@ class Worker(ABC):
         self._uuid = uuid4().hex if not uuid else uuid
         self._name = name or None
         self._data_path: Path = Path(
-            os.path.abspath(data_path)
+            data_path
             if data_path
-            else os.path.join(fn.config.CONFIG_DIR, "workers", "worker_" + self.uuid())
-        )
+            else fn.config.CONFIG_DIR / "workers" / f"worker_{self.uuid()}"
+        ).absolute()
         self.data_path = self._data_path
         fn.logging.set_logging_dir(self.data_path)
         self.logger = fn.get_logger(self.uuid(), propagate=False)
@@ -550,7 +545,7 @@ class Worker(ABC):
 
         self.logger.addHandler(
             RotatingFileHandler(
-                os.path.join(self.data_path, "worker.log"),
+                self.data_path / "worker.log",
                 maxBytes=100000,
                 backupCount=5,
             )
@@ -576,26 +571,18 @@ class Worker(ABC):
         return None
 
     @property
-    def _process_file(self):
-        return os.path.join(
-            fn.config.CONFIG_DIR,
-            "workers",
-            "worker_" + self.uuid() + ".p",
-        )
+    def _process_file(self) -> Path:
+        return fn.config.CONFIG_DIR / "workers" / f"worker_{self.uuid()}.p"
 
     @property
-    def _config_file(self):
-        return os.path.join(
-            fn.config.CONFIG_DIR,
-            "workers",
-            "worker_" + self.uuid() + ".json",
-        )
+    def _config_file(self) -> Path:
+        return fn.config.CONFIG_DIR / "workers" / f"worker_{self.uuid()}.json"
 
     def _write_process_file(self):
         pf = self._process_file
-        if not os.path.exists(os.path.dirname(pf)):
-            os.makedirs(os.path.dirname(pf), exist_ok=True)
-        if os.path.exists(pf):
+        if not pf.parent.exists():
+            pf.parent.mkdir(parents=True, exist_ok=True)
+        if pf.exists():
             with open(pf, "r") as f:
                 d = f.read()
             if d != "":
@@ -631,7 +618,7 @@ class Worker(ABC):
         self.logger.debug("Loading config")
         cfile = self._config_file
         oldc = None
-        if os.path.exists(cfile):
+        if cfile.exists():
             with open(
                 cfile,
                 "r",
@@ -732,8 +719,8 @@ class Worker(ABC):
         c["uuid"] = self.uuid()
         c["pid"] = os.getpid()
         cfile = self._config_file
-        if not os.path.exists(os.path.dirname(cfile)):
-            os.makedirs(os.path.dirname(cfile), exist_ok=True)
+        if not cfile.parent.exists():
+            cfile.parent.mkdir(parents=True, exist_ok=True)
 
         write_json_secure(data=c, filepath=cfile, cls=JSONEncoder)
         return c
@@ -741,12 +728,12 @@ class Worker(ABC):
     async def ini_config(self):
         """initializes the worker from the config file"""
         self.logger.debug("Init config")
-        if os.path.exists(self._process_file):
+        if self._process_file.exists():
             self.logger.debug("Found process file, wait and try again")
             await asyncio.sleep(
                 1
             )  # wait for at least 1 second to make sure the process file is written
-            if os.path.exists(self._process_file):
+            if self._process_file.exists():
                 # get the pid from the process file
                 with open(self._process_file, "r") as f:
                     pid = f.read()
@@ -846,22 +833,16 @@ class Worker(ABC):
             )
             if self.venvmanager:
                 tomlpath = self.data_path / "pyproject.toml"
-                if os.path.exists(tomlpath):
+                if tomlpath.exists():
                     zip_file.write(tomlpath, "pyproject.toml")
 
             if with_files:
                 # add all files in the files directory
-                for root, _, files in os.walk(self.files_path):
-                    for file in files:
-                        zip_file.write(
-                            os.path.join(root, file),
-                            os.path.join(
-                                "files",
-                                os.path.relpath(
-                                    os.path.join(root, file), self.files_path
-                                ),
-                            ),
-                        )
+                basefiles = Path("files")
+                for file in self.files_path.rglob("*"):
+                    if file.is_file():
+                        relative_path = file.relative_to(self.files_path)
+                        zip_file.write(file, basefiles / relative_path)
 
         zip_bytes = zip_buffer.getvalue()
         zip_buffer.close()
@@ -935,25 +916,25 @@ class Worker(ABC):
     @data_path.setter
     def data_path(self, data_path: Path):
         data_path = data_path.resolve()
-        if not os.path.exists(data_path):
-            os.makedirs(data_path)
+        if not data_path.exists():
+            data_path.mkdir(parents=True, exist_ok=True)
         self._data_path = data_path
 
     @property
     def files_path(self) -> Path:
         fp = self.data_path / "files"
-        if not os.path.exists(fp):
-            os.makedirs(fp)
+        if fp.exists():
+            fp.mkdir(parents=True, exist_ok=True)
 
         return fp
 
     @property
-    def local_nodespace(self):
-        return os.path.join(self.data_path, "nodespace.json")
+    def local_nodespace(self) -> Path:
+        return self.data_path / "nodespace.json"
 
     @property
-    def local_scripts(self):
-        return os.path.join(self.data_path, "local_scripts")
+    def local_scripts(self) -> Path:
+        return self.data_path / "local_scripts"
 
     @property
     def nodespace_id(self) -> str:
@@ -1056,8 +1037,8 @@ class Worker(ABC):
     def upload(self, data: bytes, filename: Path) -> Path:
         # filename = f"{hexcode}_{filename}"
         full_path = self.files_path / filename
-        # Ensure the directory exists
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        # Ensure the directory exists is not neccessary, because
+        # the files_path is created in the files_path property
         with open(full_path, "wb") as f:
             f.write(data)
         self.nodespace.set_property("files_dir", self.files_path.as_posix())
@@ -1175,7 +1156,7 @@ class Worker(ABC):
         self.clear()
         self.logger.debug("Loading worker")
         if data is None:
-            if not os.path.exists(self.local_nodespace):
+            if not self.local_nodespace.exists():
                 return
             try:
                 with open(self.local_nodespace, "r", encoding="utf-8") as f:
@@ -1286,12 +1267,9 @@ class Worker(ABC):
             "blocking": blocking,
         }
 
-    def set_progress_state_sync(self, *args, **kwargs):
-        self.loop_manager.run_until_complete(self.set_progress_state(*args, **kwargs))
-
     @exposed_method()
-    def add_shelf(self, src: Union[str, ShelfDict], save: bool = True):
-        self.set_progress_state_sync(
+    async def add_shelf(self, src: Union[str, ShelfDict], save: bool = True):
+        await self.set_progress_state(
             message="Adding shelf", status="info", progress=0.0, blocking=True
         )
         warnings.warn(
@@ -1309,7 +1287,7 @@ class Worker(ABC):
             self.nodespace.add_shelf(shelf)
             if save:
                 self.request_save()
-            self.set_progress_state_sync(
+            await self.set_progress_state(
                 message="Shelf added", status="success", progress=1, blocking=False
             )
         finally:
@@ -1319,8 +1297,8 @@ class Worker(ABC):
     @deprecated(
         "Use add_shelf instead",
     )
-    def add_shelf_by_module(self, module: str):
-        return self.add_shelf(module)
+    async def add_shelf_by_module(self, module: str):
+        return await self.add_shelf(module)
 
     @exposed_method()
     async def add_package_dependency(
@@ -1867,12 +1845,12 @@ class Worker(ABC):
         except FileNotFoundError:
             pass
 
-    def _prerun(self):
+    async def _prerun(self):
         reload_base(with_repos=False)
         self._save_disabled = True
         self.logger.info("Starting worker forever")
         self.loop_manager.reset_loop()
-        self.loop_manager.run_until_complete(self.ini_config())
+        await self.ini_config()
         self.initialize_nodespace()
         self._save_disabled = False
 
@@ -1886,16 +1864,11 @@ class Worker(ABC):
                 )
 
     def run_forever(self):
-        self.logger.debug("Starting worker forever")
-        self._prerun()
-        try:
-            self.loop_manager.run_forever()
-        finally:
-            self.stop()
+        asyncio.run(self.run_forever_async())
 
     async def run_forever_async(self):
         self.logger.debug("Starting worker forever async")
-        self._prerun()
+        await self._prerun()
         try:
             await self.loop_manager.run_forever_async()
         finally:
@@ -1903,6 +1876,7 @@ class Worker(ABC):
 
     def run_forever_threaded(self, wait_for_running=True):
         self.logger.debug("Starting worker forever in sub thread")
+
         runthread = threading.Thread(target=self.run_forever, daemon=True)
         runthread.start()
         if wait_for_running:
@@ -1910,17 +1884,27 @@ class Worker(ABC):
                 time.sleep(0.1)
         return runthread
 
+    @classmethod
+    def init_and_run_forever(
+        cls,
+        *args,
+        **kwargs,
+    ):
+        worker = cls(*args, **kwargs)
+        worker.run_forever()
+
     def stop(self):
         self.save()
         self._save_disabled = True
 
-        self.logger.info("Stopping")
         self.loop_manager.stop()
         for handler in self.logger.handlers:
-            handler.flush()
-            handler.close()
+            try:
+                handler.flush()
+            except Exception:
+                pass
 
-        if os.path.exists(self._process_file):
+        if self._process_file.exists():
             os.remove(self._process_file)
 
     def is_running(self):
@@ -1929,6 +1913,7 @@ class Worker(ABC):
     def __del__(self):
         if self.is_running():
             self.stop()
+        del self.loop_manager
 
     async def run_cmd(self, json_msg: CmdMessage):
         cmd = json_msg["cmd"]
