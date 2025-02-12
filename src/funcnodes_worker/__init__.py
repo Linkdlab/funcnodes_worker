@@ -6,10 +6,11 @@ from .remote_worker import RemoteWorker
 from .external_worker import FuncNodesExternalWorker
 from .loop import CustomLoop
 
-if aiohttp:
-    from .websocket import WSWorker
-else:
+if not aiohttp:
     WSWorker = placeholder_function("WSWorker", "http")
+else:
+    from .websocket import WSWorker
+
 
 from .message_queue_worker import MsQueueWorker
 from .socket import SocketWorker
