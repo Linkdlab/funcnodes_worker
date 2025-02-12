@@ -23,6 +23,7 @@ import importlib
 import importlib.util
 import inspect
 from uuid import uuid4
+import warnings
 
 try:
     import psutil
@@ -581,7 +582,7 @@ class Worker(ABC):
     def _write_process_file(self):
         pf = self._process_file
         if not pf.parent.exists():
-            pf.parent.mkdir(parents=True, exist_ok=True)
+            pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
         if pf.exists():
             with open(pf, "r") as f:
                 d = f.read()
@@ -673,16 +674,24 @@ class Worker(ABC):
         conf["pid"] = os.getpid()
 
         if "update_on_startup" not in conf:
-            conf["update_on_startup"] = {}
+            conf["update_on_startup"] = {}  # pragma: no cover
 
         if "funcnodes" not in conf["update_on_startup"]:
-            conf["update_on_startup"]["funcnodes"] = True
+            conf["update_on_startup"]["funcnodes"] = True  # pragma: no cover
+        if "funcnodes-core" not in conf["update_on_startup"]:
+            conf["update_on_startup"]["funcnodes-core"] = True  # pragma: no cover
+        if "funcnodes-worker" not in conf["update_on_startup"]:
+            conf["update_on_startup"]["funcnodes-worker"] = True  # pragma: no cover
 
         # conf["shelves_dependencies"] = self._shelves_dependencies.copy()
         conf["package_dependencies"] = self._package_dependencies.copy()
 
         worker_dependencies = conf.get("worker_dependencies", {})
-        if isinstance(worker_dependencies, list):
+        if isinstance(worker_dependencies, list):  # pragma: no cover
+            warnings.warn(
+                "worker_dependencies should be a dict, not a list",
+                DeprecationWarning,
+            )
             worker_dependencies = {
                 w["module"]: w for w in cast(List[WorkerDict], worker_dependencies)
             }
