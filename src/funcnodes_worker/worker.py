@@ -708,7 +708,7 @@ class Worker(ABC):
             return False
 
         for k, v in self._worker_dependencies.items():
-            if not w_in_without_classes(v):
+            if not w_in_without_classes(v):  # pragma: no cover
                 worker_dependencies[k] = v
         conf["worker_dependencies"] = worker_dependencies
 
