@@ -480,6 +480,9 @@ class WorkerJson(TypedDict):
 
 
 class Worker(ABC):
+    class UnknownCmdException(ValueError):
+        """Unknown command exception for Commands to the Worker."""
+
     def __init__(
         self,
         data_path: str | None = None,
@@ -535,7 +538,7 @@ class Worker(ABC):
         self._data_path: Path = Path(
             data_path
             if data_path
-            else fn.config.CONFIG_DIR / "workers" / f"worker_{self.uuid()}"
+            else fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}"
         ).absolute()
         self.data_path = self._data_path
         fn.logging.set_logging_dir(self.data_path)
@@ -573,11 +576,11 @@ class Worker(ABC):
 
     @property
     def _process_file(self) -> Path:
-        return fn.config.CONFIG_DIR / "workers" / f"worker_{self.uuid()}.p"
+        return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.p"
 
     @property
     def _config_file(self) -> Path:
-        return fn.config.CONFIG_DIR / "workers" / f"worker_{self.uuid()}.json"
+        return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.json"
 
     def _write_process_file(self):
         pf = self._process_file
@@ -1851,7 +1854,7 @@ class Worker(ABC):
     def initialize_nodespace(self):
         try:
             self.loop_manager.async_call(self.load())
-        except FileNotFoundError:
+        except FileNotFoundError:  # pragma: no cover
             pass
 
     async def _prerun(self):
@@ -1901,6 +1904,7 @@ class Worker(ABC):
     ):
         worker = cls(*args, **kwargs)
         worker.run_forever()
+        worker.logger.debug("Worker initialized and running stopped")
 
     def stop(self):
         self.save()
@@ -1910,7 +1914,7 @@ class Worker(ABC):
         for handler in self.logger.handlers:
             try:
                 handler.flush()
-            except Exception:
+            except Exception:  # pragma: no cover
                 pass
 
         if self._process_file.exists():
@@ -1919,15 +1923,23 @@ class Worker(ABC):
     def is_running(self):
         return self.loop_manager.running
 
-    def __del__(self):
-        if self.is_running():
+    def cleanup(self):
+        if self.is_running():  # pragma: no cover
             self.stop()
-        del self.loop_manager
+        self.loop_manager.stop()
+        for handler in self.logger.handlers[:]:
+            handler.close()
+            self.logger.removeHandler(handler)
+
+        self.nodespace.cleanup()
+
+    def __del__(self):
+        self.cleanup()
 
     async def run_cmd(self, json_msg: CmdMessage):
         cmd = json_msg["cmd"]
         if cmd not in self._exposed_methods:
-            raise Exception(
+            raise self.UnknownCmdException(
                 f"Unknown command {cmd} , available commands: {', '.join(self._exposed_methods.keys())}"
             )
         kwargs = json_msg.get("kwargs", {})
