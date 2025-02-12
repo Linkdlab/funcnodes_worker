@@ -5,7 +5,6 @@ from typing import List, Optional
 import logging
 from funcnodes_core import NodeSpace
 import time
-import threading
 
 MIN_DELAY = 0.1
 MIN_DEF = 0.1
@@ -82,7 +81,7 @@ class LoopManager:
         self._loop: asyncio.AbstractEventLoop = None  # type: ignore
         self._worker = worker
         self.reset_loop()
-        self._tasks: List[asyncio.Task] = []
+        self._loop_tasks: List[asyncio.Task] = []
         self._running = False
         self._loops_to_add = []
 
@@ -96,34 +95,6 @@ class LoopManager:
             else:
                 raise
 
-    def run_until_complete(self, coro):
-        if self._loop.is_running():
-            # Loop is running, execute the coroutine in a new thread
-            result = {}
-            exception = {}
-
-            def run_coroutine():
-                try:
-                    # Each thread needs its own event loop
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    result["value"] = new_loop.run_until_complete(coro)
-                except Exception as e:
-                    exception["e"] = e
-                finally:
-                    new_loop.close()
-
-            thread = threading.Thread(target=run_coroutine)
-            thread.start()
-            thread.join()
-
-            if "e" in exception:
-                raise exception["e"]
-            return result.get("value")
-
-        else:
-            return self._loop.run_until_complete(coro)
-
     def add_loop(self, loop: CustomLoop):
         if self._running:
             self._loops.append(loop)
@@ -134,7 +105,7 @@ class LoopManager:
                 self.remove_loop(loop)
 
             t = self._loop.create_task(looprunner())
-            self._tasks.append(t)
+            self._loop_tasks.append(t)
             return t
         else:
             self._loops_to_add.append(loop)
@@ -158,7 +129,7 @@ class LoopManager:
 
         if loop in self._loops:
             idx = self._loops.index(loop)
-            task = self._tasks.pop(idx)
+            task = self._loop_tasks.pop(idx)
             self._loops.pop(idx)
             task.cancel()
 
@@ -170,11 +141,11 @@ class LoopManager:
 
     def stop(self):
         self._running = False
-        for task in self._tasks:
-            task.cancel()
-
         for loop in list(self._loops):
             self.remove_loop(loop)
+
+        for task in self._loop_tasks:
+            task.cancel()
 
     @property
     def running(self) -> bool:
