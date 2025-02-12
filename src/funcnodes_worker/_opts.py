@@ -4,7 +4,7 @@ try:
         get_react_plugin_content,
     )
 
-    FUNCNODES_REACT = True
+    FUNCNODES_REACT = True  # pragma: no cover
 except (ModuleNotFoundError, ImportError):
     FUNCNODES_REACT = False
     FUNCNODES_REACT_PLUGIN = None
@@ -40,7 +40,7 @@ except (ModuleNotFoundError, ImportError):
 try:
     import funcnodes
 
-    IN_FUNCNODES = True
+    IN_FUNCNODES = True  # pragma: no cover
 except (ModuleNotFoundError, ImportError):
     funcnodes = None
     IN_FUNCNODES = False
