@@ -90,8 +90,8 @@ class RemoteWorker(Worker):
         self.logger.exception(error)
         self.loop_manager.async_call(self.send(error_bundle))
 
-    async def recieve_message(self, json_msg: dict, **sendkwargs):
-        self.logger.debug(f"Recieved message {json_msg}")
+    async def receive_message(self, json_msg: dict, **sendkwargs):
+        self.logger.debug(f"received message {json_msg}")
         if "type" not in json_msg:
             return
         try:
@@ -107,6 +107,8 @@ class RemoteWorker(Worker):
                     id=json_msg.get("id"),
                 )
             )
+
+    recieve_message = receive_message
 
     async def _handle_cmd_msg(self, json_msg: CmdMessage, **sendkwargs):
         result = await self.run_cmd(json_msg)
