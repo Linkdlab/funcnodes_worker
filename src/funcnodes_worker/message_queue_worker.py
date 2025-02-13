@@ -109,11 +109,3 @@ class MsQueueWorker(RemoteWorker):
           >>> worker.stop()
         """
         super().stop()
-
-    @staticmethod
-    def init_and_run_forever(
-        *args,
-        **kwargs,
-    ):
-        worker = MsQueueWorker(*args, **kwargs)
-        worker.run_forever()
