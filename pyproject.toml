@@ -1,12 +1,13 @@
 [project]
 name = "funcnodes-worker"
-version = "0.1.2"
+version = "0.1.3"
 description = "Worker package for FuncNodes"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
- "funcnodes-core>=0.3.22"
- ]
+ "funcnodes-core>=0.3.27",
+ "pip>=25.0.1",
+]
 
 [dependency-groups]
 dev = [

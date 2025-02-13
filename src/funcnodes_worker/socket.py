@@ -221,11 +221,3 @@ class SocketWorker(RemoteWorker):
         conf.pop("host", None)
         conf.pop("port", None)
         return conf
-
-    @staticmethod
-    def init_and_run_forever(
-        *args,
-        **kwargs,
-    ):
-        worker = SocketWorker(*args, **kwargs)
-        worker.run_forever()

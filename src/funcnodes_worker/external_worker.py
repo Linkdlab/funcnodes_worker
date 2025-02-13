@@ -88,7 +88,7 @@ def encode_external_worker(obj, preview=False):  # noqa: F841
             done=True,
             continue_preview=False,
         )
-    return Encdata(data=obj, handeled=False)
+    return Encdata(data=obj, handeled=False)  # pragma: no cover
 
 
 JSONEncoder.add_encoder(encode_external_worker, [FuncNodesExternalWorker])
