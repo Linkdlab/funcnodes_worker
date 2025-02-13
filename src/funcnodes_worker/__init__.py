@@ -7,7 +7,7 @@ from .external_worker import FuncNodesExternalWorker
 from .loop import CustomLoop
 
 if not aiohttp:
-    WSWorker = placeholder_function("WSWorker", "http")
+    WSWorker = placeholder_function("WSWorker", "funcnodes_worker[http]")
 else:
     from .websocket import WSWorker
 

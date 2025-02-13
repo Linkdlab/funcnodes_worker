@@ -65,11 +65,16 @@ from ._opts import (
     USE_VENV,
     venvmngr,
     FUNCNODES_REACT,
-    FUNCNODES_REACT_PLUGIN,
     subprocess_monitor,
     USE_SUBPROCESS_MONITOR,
 )
-from .utils.modules import AVAILABLE_REPOS, reload_base, install_repo, try_import_module
+from .utils.modules import (
+    AVAILABLE_REPOS,
+    reload_base,
+    install_repo,
+    try_import_module,
+    install_package,
+)
 from funcnodes_core.utils.files import write_json_secure
 
 
@@ -143,6 +148,9 @@ class ErrorMessage(TypedDict):
     error: str
     tb: List[str]
     id: str | None
+
+
+FrontEndKeys = Literal["react"]
 
 
 class ExtendedFullNodeJSON(FullNodeJSON):
@@ -1131,18 +1139,40 @@ class Worker(ABC):
         return True
 
     @exposed_method()
-    def get_plugin_keys(self, type: Literal["react"]) -> List[str]:
-        if type == "react" and FUNCNODES_REACT:
-            return list(FUNCNODES_REACT_PLUGIN.keys())
+    def get_plugin_keys(self, type: FrontEndKeys) -> List[str]:
+        self._check_frontend(type, install_missing=True)
+        if type == "react":
+            _, module = FUNCNODES_REACT()
+            return list(module.FUNCNODES_REACT_PLUGIN.keys())
 
         raise ValueError(f"Plugin type {type} not found")
 
     @exposed_method()
-    def get_plugin(self, key: str, type: Literal["react"]) -> Any:
-        if type == "react" and FUNCNODES_REACT:
-            return get_react_plugin_content(key)
+    def get_plugin(self, key: str, type: FrontEndKeys) -> Any:
+        self._check_frontend(type, install_missing=True)
+        if type == "react":
+            _, module = FUNCNODES_REACT()
+            return module.get_react_plugin_content(key)
 
         raise ValueError(f"Plugin type {type} not found")
+
+    def _check_frontend(
+        self, fontendkey: FrontEndKeys, install_missing: bool = True
+    ) -> bool:
+        if fontendkey == "react":
+            if not FUNCNODES_REACT()[0]:
+                if install_missing:
+                    install_package(
+                        "funcnodes-react-flow",
+                        version=None,
+                        upgrade=True,
+                        env_manager=self.venvmanager,
+                        logger=self.logger,
+                    )
+                else:
+                    raise ImportError("funcnodes-react-flow is not installed")
+        else:
+            raise ValueError(f"Frontend {fontendkey} not found")
 
     # endregion states
 

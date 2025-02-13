@@ -1,14 +1,51 @@
-try:
-    from funcnodes_react_flow import (
-        FUNCNODES_REACT_PLUGIN,
-        get_react_plugin_content,
-    )
+from typing import Tuple
+from types import ModuleType
+from collections.abc import Callable
 
-    FUNCNODES_REACT = True  # pragma: no cover
-except (ModuleNotFoundError, ImportError):
-    FUNCNODES_REACT = False
-    FUNCNODES_REACT_PLUGIN = None
-    get_react_plugin_content = None
+
+class DependencyError(Exception):
+    pass
+
+
+def placeholder_function(
+    name,
+    dep,
+) -> Callable:
+    def _f(*args, **kwargs):
+        raise DependencyError(f"{name} is not installed, please install {dep}")
+
+    return _f
+
+
+def placeholder_module(name, dep) -> ModuleType:
+    class _Module:
+        def __getattribute__(self, _name):
+            raise DependencyError(f"{name} is not installed, please install {dep}")
+
+    return _Module()
+
+
+def palceholder_obj(name, dep) -> object:
+    class _Obj:
+        def __getattribute__(self, _name):
+            raise DependencyError(f"{name} is not installed, please install {dep}")
+
+    return _Obj()
+
+
+def FUNCNODES_REACT() -> Tuple[bool, ModuleType]:
+    try:
+        import funcnodes_react_flow
+
+        FUNCNODES_REACT = True
+    except (ModuleNotFoundError, ImportError):
+        funcnodes_react_flow = placeholder_module(
+            "funcnodes_react_flow", "funcnodes-react-flow"
+        )
+        FUNCNODES_REACT = False
+
+    return FUNCNODES_REACT, funcnodes_react_flow
+
 
 try:
     import venvmngr
@@ -46,26 +83,8 @@ except (ModuleNotFoundError, ImportError):
     IN_FUNCNODES = False
 
 
-class DependencyError(Exception):
-    pass
-
-
-def placeholder_function(
-    name,
-    dep,
-):
-    def _f(*args, **kwargs):
-        raise DependencyError(
-            f"{name} is not installed, please install funcnodes_worker[{dep}]"
-        )
-
-    return _f
-
-
 __all__ = [
     "FUNCNODES_REACT",
-    "FUNCNODES_REACT_PLUGIN",
-    "get_react_plugin_content",
     "USE_VENV",
     "venvmngr",
     "subprocess_monitor",

@@ -14,7 +14,7 @@ from funcnodes_core.testing import (
 fn_set_in_test()
 
 
-class TestLoop(CustomLoop):
+class _TestLoop(CustomLoop):
     async def loop(self):
         pass
 
@@ -22,7 +22,7 @@ class TestLoop(CustomLoop):
 class TestCustomLoop(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.logger = logging.getLogger("TestLogger")
-        self.loop = TestLoop(delay=0.2, logger=self.logger)
+        self.loop = _TestLoop(delay=0.2, logger=self.logger)
         self.loop.loop = AsyncMock()
 
     async def test_initial_state(self):
