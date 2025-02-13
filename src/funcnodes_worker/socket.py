@@ -89,7 +89,7 @@ class SocketLoop(CustomLoop):
                         json_msg = json.loads(message.decode())  # Decode JSON data
                     except json.JSONDecodeError:
                         continue
-                    await self._worker.recieve_message(json_msg, writer=writer)
+                    await self._worker.receive_message(json_msg, writer=writer)
 
         except Exception as e:
             FUNCNODES_LOGGER.exception(e)
