@@ -57,7 +57,6 @@ from weakref import WeakSet
 import io
 import zipfile
 import base64
-import warnings
 from pathlib import Path
 
 from funcnodes_worker.utils.messages import worker_event_message
@@ -1267,7 +1266,7 @@ class Worker(ABC):
         )
 
     async def send(self, data, **kwargs):
-        """send data to the any reciever, in base class it is a no-op"""
+        """send data to the any receiver, in base class it is a no-op"""
         pass
 
     @abstractmethod

@@ -38,12 +38,12 @@ class MsgLoop(CustomLoop):
         The main loop for the WebSocket server.
         """
         try:
-            while not self._worker.recieve_queue.empty():
-                queue_message = self._worker.recieve_queue.get()
+            while not self._worker.receive_queue.empty():
+                queue_message = self._worker.receive_queue.get()
                 message = queue_message["msg"]
                 target = queue_message.get("target")
                 json_msg = json.loads(message, cls=JSONDecoder)
-                await self._worker.recieve_message(json_msg, target=target)
+                await self._worker.receive_message(json_msg, target=target)
         except Exception as e:
             FUNCNODES_LOGGER.exception(e)
 
@@ -51,7 +51,7 @@ class MsgLoop(CustomLoop):
         """
         Stops the WebSocket server.
         """
-        self._worker.recieve_queue.close()
+        self._worker.receive_queue.close()
         self._worker.send_queue.close()
         await super().stop()
 
@@ -63,7 +63,7 @@ class MsQueueWorker(RemoteWorker):
 
     def __init__(
         self,
-        recieve_queue: Queue,
+        receive_queue: Queue,
         send_queue: Queue,
         **kwargs,
     ) -> None:
@@ -87,7 +87,7 @@ class MsQueueWorker(RemoteWorker):
         if c is None:
             c = {}
 
-        self.recieve_queue = recieve_queue
+        self.receive_queue = receive_queue
         self.send_queue = send_queue
 
         self.ws_loop = MsgLoop(worker=self)
