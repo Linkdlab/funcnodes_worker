@@ -33,6 +33,24 @@ def palceholder_obj(name, dep) -> object:
     return _Obj()
 
 
+class PlaceHolderClass:
+    classname = None
+    dependency = None
+
+    def __getattribute__(self, _name):
+        raise DependencyError(
+            f"{self.classname} is not installed, please install {self.dependency}"
+        )
+
+
+def placeholder_class(name, dep) -> object:
+    class _PlaceHolderClass(PlaceHolderClass):
+        classname = name
+        dependency = dep
+
+    return _PlaceHolderClass()
+
+
 def FUNCNODES_REACT() -> Tuple[bool, ModuleType]:
     try:
         import funcnodes_react_flow

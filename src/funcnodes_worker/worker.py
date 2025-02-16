@@ -772,7 +772,7 @@ class Worker(ABC):
     async def update_from_config(self, config: dict):
         """updates the worker from a config dict"""
         self.logger.debug("Update from config")
-        reload_base(with_repos=True)
+        await reload_base(with_repos=True)
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
@@ -1400,7 +1400,7 @@ class Worker(ABC):
                     blocking=True,
                 )
 
-                repo = install_repo(
+                repo = await install_repo(
                     name,
                     version=dep.get("version", None),
                     env_manager=self.venvmanager,
@@ -1418,7 +1418,7 @@ class Worker(ABC):
                         progress=0.40,
                         blocking=True,
                     )
-                    repo = install_repo(
+                    repo = await install_repo(
                         name,
                         version=dep.get("version", None),
                         upgrade=True,
@@ -1640,8 +1640,8 @@ class Worker(ABC):
     #     return True
 
     @exposed_method()
-    def get_available_modules(self):
-        reload_base()
+    async def get_available_modules(self):
+        await reload_base()
         ans = {
             "installed": [],
             "active": [],
@@ -1887,7 +1887,7 @@ class Worker(ABC):
             pass
 
     async def _prerun(self):
-        reload_base(with_repos=False)
+        await reload_base(with_repos=False)
         self._save_disabled = True
         self.logger.info("Starting worker forever")
         self.loop_manager.reset_loop()
