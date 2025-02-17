@@ -482,3 +482,11 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
 
         await self.worker.add_package_dependency("funcnodes-basic")
         self.assertIn("funcnodes-basic", self.worker._package_dependencies)
+
+    async def test_upload(self):
+        data = b"hello"
+        self.worker.upload(data, "test.txt")
+
+        self.assertTrue(
+            os.path.exists(os.path.join(self.worker.files_path, "test.txt"))
+        )
