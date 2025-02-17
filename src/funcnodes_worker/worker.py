@@ -486,6 +486,9 @@ class WorkerJson(TypedDict):
     update_on_startup: PossibleUpdates
 
 
+runsstateT = Literal["undefined", "running", "stopping", "stopped"]
+
+
 class Worker(ABC):
     class UnknownCmdException(ValueError):
         """Unknown command exception for Commands to the Worker."""
@@ -507,6 +510,7 @@ class Worker(ABC):
             default_nodes = []
 
         self._debug = debug
+        self._runstate: runsstateT = "undefined"
         self._package_dependencies: Dict[str, PackageDependency] = {}
         # self._shelves_dependencies: Dict[str, ShelfDict] = {}
         self._worker_dependencies: Dict[str, WorkerDict] = {}
@@ -1886,7 +1890,12 @@ class Worker(ABC):
         except FileNotFoundError:  # pragma: no cover
             pass
 
+    @property
+    def runstate(self) -> runsstateT:
+        return self._runstate
+
     async def _prerun(self):
+        self._runstate = "starting"
         await reload_base(with_repos=False)
         self._save_disabled = True
         self.logger.info("Starting worker forever")
@@ -1911,6 +1920,7 @@ class Worker(ABC):
         self.logger.debug("Starting worker forever async")
         await self._prerun()
         try:
+            self._runstate = "running"
             await self.loop_manager.run_forever_async()
         finally:
             self.stop()
@@ -1936,6 +1946,7 @@ class Worker(ABC):
         worker.logger.debug("Worker initialized and running stopped")
 
     def stop(self):
+        self._runstate = "stopped"
         self.save()
         self._save_disabled = True
 
@@ -1953,6 +1964,7 @@ class Worker(ABC):
         return self.loop_manager.running
 
     def cleanup(self):
+        self._runstate = "removed"
         if self.is_running():  # pragma: no cover
             self.stop()
         self.loop_manager.stop()
