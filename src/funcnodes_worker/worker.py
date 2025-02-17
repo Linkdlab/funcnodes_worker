@@ -946,7 +946,7 @@ class Worker(ABC):
     @property
     def files_path(self) -> Path:
         fp = self.data_path / "files"
-        if fp.exists():
+        if not fp.exists():
             fp.mkdir(parents=True, exist_ok=True)
 
         return fp
