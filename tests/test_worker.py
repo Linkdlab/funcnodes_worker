@@ -476,3 +476,9 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
         }
 
         self.assertEqual(vs, exp)
+
+    async def test_add_package_dependency(self):
+        from funcnodes_worker.utils.modules import AVAILABLE_MODULES
+
+        await self.worker.add_package_dependency("funcnodes-basic")
+        self.assertIn("funcnodes-basic", self.worker._package_dependencies)

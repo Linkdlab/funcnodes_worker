@@ -1142,8 +1142,8 @@ class Worker(ABC):
         return True
 
     @exposed_method()
-    def get_plugin_keys(self, type: FrontEndKeys) -> List[str]:
-        self._check_frontend(type, install_missing=True)
+    async def get_plugin_keys(self, type: FrontEndKeys) -> List[str]:
+        await self._check_frontend(type, install_missing=True)
         if type == "react":
             _, module = FUNCNODES_REACT()
             return list(module.FUNCNODES_REACT_PLUGIN.keys())
@@ -1151,21 +1151,21 @@ class Worker(ABC):
         raise ValueError(f"Plugin type {type} not found")
 
     @exposed_method()
-    def get_plugin(self, key: str, type: FrontEndKeys) -> Any:
-        self._check_frontend(type, install_missing=True)
+    async def get_plugin(self, key: str, type: FrontEndKeys) -> Any:
+        await self._check_frontend(type, install_missing=True)
         if type == "react":
             _, module = FUNCNODES_REACT()
             return module.get_react_plugin_content(key)
 
         raise ValueError(f"Plugin type {type} not found")
 
-    def _check_frontend(
+    async def _check_frontend(
         self, fontendkey: FrontEndKeys, install_missing: bool = True
     ) -> bool:
         if fontendkey == "react":
             if not FUNCNODES_REACT()[0]:
                 if install_missing:
-                    install_package(
+                    await install_package(
                         "funcnodes-react-flow",
                         version=None,
                         upgrade=True,
@@ -1364,6 +1364,7 @@ class Worker(ABC):
             progress=0.0,
             blocking=True,
         )
+        await reload_base(with_repos=False)
 
         try:
             if name not in AVAILABLE_REPOS:
