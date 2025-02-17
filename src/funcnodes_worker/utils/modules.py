@@ -12,8 +12,42 @@ from funcnodes_core.utils.plugins import InstalledModule
 from dataclasses import dataclass, field
 import logging
 from asynctoolkit.defaults.http import HTTPTool
+from asynctoolkit.base import ExtendableTool
 
 from .._opts import venvmngr
+
+
+class PipInstallTool(ExtendableTool[None]):
+    async def run(self, package_name: str, upgrade: bool = False):
+        return await super().run(package_name=package_name, upgrade=upgrade)
+
+
+try:
+    import micropip
+
+    async def micropip_install(package_name: str, upgrade: bool = False):
+        await micropip.install(package_name, upgrade=upgrade)
+
+    if sys.platform == "emscripten":
+        PipInstallTool.register_extension("micropip", micropip_install)
+except ImportError:
+    pass
+
+try:
+    import pip
+
+    async def pip_install(package_name: str, upgrade: bool = False):
+        try:
+            from pip._internal import main as pip_main
+        except ImportError:
+            # Fallback for older versions of pip
+            from pip import main as pip_main
+
+        pip_main(["install", package_name] + (["--upgrade"] if upgrade else []))
+
+    PipInstallTool.register_extension("pip", pip_install)
+except ImportError:
+    pass
 
 
 @dataclass
@@ -106,7 +140,7 @@ async def load_repo_csv():
             FUNCNODES_LOGGER.exception(e)
 
 
-def install_package(
+async def install_package(
     package_name,
     version=None,
     upgrade=False,
@@ -139,15 +173,6 @@ def install_package(
                     print(
                         f"Package '{package_name}' is already installed. Upgrading..."
                     )
-                # Prepare pip command to upgrade the package
-                install_cmd = [
-                    sys.executable,
-                    "-m",
-                    "pip",
-                    "install",
-                    "--upgrade",
-                    package_name,
-                ]
             else:
                 if logger:
                     logger.info(f"Package '{package_name}' is already installed.")
@@ -155,8 +180,7 @@ def install_package(
                     print(f"Package '{package_name}' is already installed.")
                 return True
         except importlib.metadata.PackageNotFoundError:
-            # If not installed, prepare pip command to install the package
-            install_cmd = [sys.executable, "-m", "pip", "install", package_name]
+            pass
 
         # If a specific version is requested, modify the command accordingly.
         if version:
@@ -165,11 +189,11 @@ def install_package(
                 version = version
             else:
                 version = "==" + version
-            install_cmd[-1] = f"{package_name}{version}"
+            package_name = f"{package_name}{version}"
 
         try:
             # Execute the pip command as a subprocess.
-            subprocess.check_call(install_cmd)
+            await PipInstallTool().run(package_name, upgrade=upgrade)
             return True
         except subprocess.CalledProcessError:
             # Return False if pip returns an error.
@@ -231,7 +255,7 @@ async def install_repo(
         return False  # Repository metadata not found
 
     # Attempt to install the package
-    if not install_package(
+    if not await install_package(
         package_name, version, upgrade, env_manager=env_manager, logger=logger
     ):
         return None
