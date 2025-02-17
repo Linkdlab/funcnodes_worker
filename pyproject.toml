@@ -1,6 +1,6 @@
 [project]
 name = "funcnodes-worker"
-version = "0.1.5"
+version = "0.1.6"
 description = "Worker package for FuncNodes"
 readme = "README.md"
 requires-python = ">=3.11"
