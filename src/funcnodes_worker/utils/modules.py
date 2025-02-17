@@ -1,8 +1,6 @@
 from __future__ import annotations
 import csv
 import importlib
-import subprocess
-import sys
 import importlib.metadata
 
 from typing import List, Optional, Dict
@@ -12,42 +10,9 @@ from funcnodes_core.utils.plugins import InstalledModule
 from dataclasses import dataclass, field
 import logging
 from asynctoolkit.defaults.http import HTTPTool
-from asynctoolkit.base import ExtendableTool
+from asynctoolkit.defaults.packageinstaller import PackageInstallerTool
 
 from .._opts import venvmngr
-
-
-class PipInstallTool(ExtendableTool[None]):
-    async def run(self, package_name: str, upgrade: bool = False):
-        return await super().run(package_name=package_name, upgrade=upgrade)
-
-
-try:
-    import micropip
-
-    async def micropip_install(package_name: str, upgrade: bool = False):
-        await micropip.install(package_name, upgrade=upgrade)
-
-    if sys.platform == "emscripten":
-        PipInstallTool.register_extension("micropip", micropip_install)
-except ImportError:
-    pass
-
-try:
-    import pip
-
-    async def pip_install(package_name: str, upgrade: bool = False):
-        try:
-            from pip._internal import main as pip_main
-        except ImportError:
-            # Fallback for older versions of pip
-            from pip import main as pip_main
-
-        pip_main(["install", package_name] + (["--upgrade"] if upgrade else []))
-
-    PipInstallTool.register_extension("pip", pip_install)
-except ImportError:
-    pass
 
 
 @dataclass
@@ -182,20 +147,13 @@ async def install_package(
         except importlib.metadata.PackageNotFoundError:
             pass
 
-        # If a specific version is requested, modify the command accordingly.
-        if version:
-            # If the version string already starts with a comparison operator, use it directly.
-            if version[0] in ("=", "<", ">", "!"):
-                version = version
-            else:
-                version = "==" + version
-            package_name = f"{package_name}{version}"
-
         try:
             # Execute the pip command as a subprocess.
-            await PipInstallTool().run(package_name, upgrade=upgrade)
+            await PackageInstallerTool().run(
+                package_name, version=version, upgrade=upgrade
+            )
             return True
-        except subprocess.CalledProcessError:
+        except Exception:
             # Return False if pip returns an error.
             return False
     # If an environment manager is provided, use it to install the package.
