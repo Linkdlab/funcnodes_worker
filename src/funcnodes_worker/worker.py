@@ -486,6 +486,9 @@ class WorkerJson(TypedDict):
     update_on_startup: PossibleUpdates
 
 
+runsstateT = Literal["undefined", "running", "stopping", "stopped"]
+
+
 class Worker(ABC):
     class UnknownCmdException(ValueError):
         """Unknown command exception for Commands to the Worker."""
@@ -507,6 +510,7 @@ class Worker(ABC):
             default_nodes = []
 
         self._debug = debug
+        self._runstate: runsstateT = "undefined"
         self._package_dependencies: Dict[str, PackageDependency] = {}
         # self._shelves_dependencies: Dict[str, ShelfDict] = {}
         self._worker_dependencies: Dict[str, WorkerDict] = {}
@@ -772,7 +776,7 @@ class Worker(ABC):
     async def update_from_config(self, config: dict):
         """updates the worker from a config dict"""
         self.logger.debug("Update from config")
-        reload_base(with_repos=True)
+        await reload_base(with_repos=True)
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
@@ -832,7 +836,7 @@ class Worker(ABC):
                         self.logger.exception(e)
 
     @exposed_method()
-    def export_worker(self, with_files=True) -> bytes:
+    def export_worker(self, with_files: bool = True) -> bytes:
         """packs all the required data for the worker to be exported into a custom zip file format"""
 
         self.save()
@@ -1400,7 +1404,7 @@ class Worker(ABC):
                     blocking=True,
                 )
 
-                repo = install_repo(
+                repo = await install_repo(
                     name,
                     version=dep.get("version", None),
                     env_manager=self.venvmanager,
@@ -1418,7 +1422,7 @@ class Worker(ABC):
                         progress=0.40,
                         blocking=True,
                     )
-                    repo = install_repo(
+                    repo = await install_repo(
                         name,
                         version=dep.get("version", None),
                         upgrade=True,
@@ -1640,8 +1644,8 @@ class Worker(ABC):
     #     return True
 
     @exposed_method()
-    def get_available_modules(self):
-        reload_base()
+    async def get_available_modules(self):
+        await reload_base()
         ans = {
             "installed": [],
             "active": [],
@@ -1886,8 +1890,13 @@ class Worker(ABC):
         except FileNotFoundError:  # pragma: no cover
             pass
 
+    @property
+    def runstate(self) -> runsstateT:
+        return self._runstate
+
     async def _prerun(self):
-        reload_base(with_repos=False)
+        self._runstate = "starting"
+        await reload_base(with_repos=False)
         self._save_disabled = True
         self.logger.info("Starting worker forever")
         self.loop_manager.reset_loop()
@@ -1911,6 +1920,7 @@ class Worker(ABC):
         self.logger.debug("Starting worker forever async")
         await self._prerun()
         try:
+            self._runstate = "running"
             await self.loop_manager.run_forever_async()
         finally:
             self.stop()
@@ -1936,6 +1946,7 @@ class Worker(ABC):
         worker.logger.debug("Worker initialized and running stopped")
 
     def stop(self):
+        self._runstate = "stopped"
         self.save()
         self._save_disabled = True
 
@@ -1953,6 +1964,7 @@ class Worker(ABC):
         return self.loop_manager.running
 
     def cleanup(self):
+        self._runstate = "removed"
         if self.is_running():  # pragma: no cover
             self.stop()
         self.loop_manager.stop()
