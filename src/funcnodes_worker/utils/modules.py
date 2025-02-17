@@ -11,8 +11,9 @@ from funcnodes_core._setup import setup_module
 from funcnodes_core.utils.plugins import InstalledModule
 from dataclasses import dataclass, field
 import logging
+from asynctoolkit.defaults.http import HTTPTool
 
-from .._opts import venvmngr, USE_VENV, requests
+from .._opts import venvmngr
 
 
 @dataclass
@@ -70,21 +71,22 @@ class AvailableRepo:
 AVAILABLE_REPOS: Dict[str, AvailableRepo] = {}
 
 
-def load_repo_csv():
+async def load_repo_csv():
     """
     Load repository metadata from a remote CSV file and update AVAILABLE_REPOS.
     """
-    if requests is None:
-        # If requests module is not available, do nothing.
-        return
-    # URL pointing to the CSV file hosted on GitHub
+
     url = "https://raw.githubusercontent.com/Linkdlab/funcnodes_repositories/refs/heads/main/funcnodes_modules.csv"
-    resp = requests.get(url, timeout=1)
-    if resp.status_code != 200:
-        # If the HTTP request fails, exit the function.
+
+    try:
+        async with await HTTPTool().run(url=url) as resp:
+            text = await resp.text()
+    except Exception as e:
+        FUNCNODES_LOGGER.exception(e)
         return
+
     # Read the CSV data into a dictionary reader
-    reader = csv.DictReader(resp.text.splitlines(), delimiter=",")
+    reader = csv.DictReader(text.splitlines(), delimiter=",")
     for line in reader:
         try:
             # Create an AvailableRepo instance from the CSV row
@@ -205,7 +207,7 @@ def install_package(
         return False
 
 
-def install_repo(
+async def install_repo(
     package_name: str,
     upgrade: bool = False,
     version=None,
@@ -235,7 +237,7 @@ def install_repo(
         return None
 
     # Reload the base configuration (without reloading repos from CSV)
-    reload_base(with_repos=False)
+    await reload_base(with_repos=False)
 
     if package_name in AVAILABLE_REPOS:
         try_import_repo(package_name)
@@ -316,7 +318,7 @@ def try_import_repo(name: str) -> Optional[AvailableRepo]:
     return None
 
 
-def reload_base(with_repos=True):
+async def reload_base(with_repos=True):
     """
     Reload the core setup and update repository/module information.
 
@@ -328,7 +330,7 @@ def reload_base(with_repos=True):
     setup()
     if with_repos:
         try:
-            load_repo_csv()
+            await load_repo_csv()
         except Exception:
             pass
     # Update the 'installed' flag for each repo based on the presence of module data

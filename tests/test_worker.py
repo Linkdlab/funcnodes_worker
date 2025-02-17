@@ -427,19 +427,25 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
         )
 
         asyncio.create_task(self.worker.run_forever_async())
-        await asyncio.sleep(0.1)  # let the worker start
+        async with asyncio.timeout(5):
+            while self.worker.runstate != "running":
+                await asyncio.sleep(0.1)
         node_id = "test_node"
         self.node1 = self.worker.add_node(node_id)
         self.node2 = self.worker.add_node(node_id)
         self.worker.add_edge(self.node1.uuid, "out", self.node2.uuid, "a")
         await asyncio.sleep(0.1)  # let the nodes trigger
 
-    async def asyncTearDown(self):
+    def tearDown(self):
         self.worker.stop()
         fn_teardown()
         self.tempdir.cleanup()
 
     async def test_get_io_value(self):
+        # list nodes
+        nodes = self.worker.get_nodes()
+        self.assertEqual(len(nodes), 2)
+
         v = self.worker.get_io_value(self.node1.uuid, "out")
 
         self.assertEqual(v, 1)

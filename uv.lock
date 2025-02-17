@@ -100,6 +100,15 @@ wheels = [
 ]
 
 [[package]]
+name = "asynctoolkit"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/ef/c4a1ab185127619f13319fd70f3eea2e6d6ece428215e2c2d7bbf7f4a228/asynctoolkit-0.1.0.tar.gz", hash = "sha256:e861f37f4099181d1ccc99e9dc697b48df81db95b7b8155ca77226ca6ecc4ff6", size = 9521 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/35/381d15894b14f77850e8408ebe4c15ebb7c21e03714a7bd88944b0db4dc6/asynctoolkit-0.1.0-py3-none-any.whl", hash = "sha256:f0794ad6ed3b1221ba56b10bec821dbf051b8b1d72421e9b60bbd2e20a12d239", size = 8739 },
+]
+
+[[package]]
 name = "attrs"
 version = "25.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -344,9 +353,10 @@ wheels = [
 
 [[package]]
 name = "funcnodes-worker"
-version = "0.1.2"
+version = "0.1.4"
 source = { editable = "." }
 dependencies = [
+    { name = "asynctoolkit" },
     { name = "funcnodes-core" },
     { name = "pip" },
 ]
@@ -386,6 +396,7 @@ dev = [
 requires-dist = [
     { name = "aiohttp", marker = "extra == 'http'" },
     { name = "aiohttp-cors", marker = "extra == 'http'" },
+    { name = "asynctoolkit", specifier = ">=0.1.0" },
     { name = "funcnodes-core", specifier = ">=0.3.27" },
     { name = "funcnodes-worker", extras = ["venv", "http", "subprocess-monitor"], marker = "extra == 'all'" },
     { name = "pip", specifier = ">=25.0.1" },

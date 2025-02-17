@@ -116,7 +116,7 @@ class LoopManager:
             self._loop.is_running()
         )  # and asyncio.get_event_loop() == self._loop
 
-        if loop.running:
+        if loop.running and not self._loop.is_closed():
             loop._running = False  # set this to false prevent recursion
             try:
                 if not is_running:
