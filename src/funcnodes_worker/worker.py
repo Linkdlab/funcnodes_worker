@@ -832,7 +832,7 @@ class Worker(ABC):
                         self.logger.exception(e)
 
     @exposed_method()
-    def export_worker(self, with_files=True) -> bytes:
+    def export_worker(self, with_files: bool = True) -> bytes:
         """packs all the required data for the worker to be exported into a custom zip file format"""
 
         self.save()
