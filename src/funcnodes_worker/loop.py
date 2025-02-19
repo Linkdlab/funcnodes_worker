@@ -20,6 +20,7 @@ class CustomLoop(ABC):
         self._logger = logger
         self._running = False
         self._stopped = False
+        self._paused = False
         self._manager: Optional[LoopManager] = None
         self._stop_event = asyncio.Event()
 
@@ -66,13 +67,26 @@ class CustomLoop(ABC):
         self._running = True
         while self.running:
             try:
-                if time.time() - self._delay > last_run:
+                if (time.time() - self._delay > last_run) and not self._paused:
                     await self._loop()
                     last_run = time.time()
             except Exception as exc:  # pylint: disable=broad-except
                 self._logger.exception(exc)
 
             await asyncio.sleep(min(self._delay, MIN_DEF))
+
+    def pause(self):
+        self._paused = True
+
+    def resume(self):
+        self._paused = False
+
+    def resume_in(self, delay: float):
+        async def _resume():
+            await asyncio.sleep(delay)
+            self.resume()
+
+        self.manager.async_call(_resume())
 
 
 class LoopManager:
