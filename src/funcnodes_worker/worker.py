@@ -896,7 +896,7 @@ class Worker(ABC):
         if config is not None:
             await self.update_from_config(dictconfig)
         if state is not None:
-            self.load_data(dictstate)
+            await self.load_data(dictstate)
 
     @exposed_method()
     async def update_from_export(self, data: Union[str, bytes]):
@@ -1194,8 +1194,8 @@ class Worker(ABC):
         return data
 
     @exposed_method()
-    def load_data(self, data: WorkerState):
-        return self.loop_manager.async_call(self.load(data))
+    async def load_data(self, data: WorkerState):
+        return await self.load(data)
 
     async def load(self, data: WorkerState | str | None = None):
         self.clear()
