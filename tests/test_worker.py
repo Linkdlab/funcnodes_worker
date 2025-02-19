@@ -355,7 +355,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     async def test_load(self):
         asyncio.create_task(self.worker.run_forever_async())
-        await asyncio.sleep(0.1)
+        await self.worker.wait_for_running()
         data = WorkerState(
             backend={
                 "nodes": [],
@@ -398,6 +398,11 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
             external_workers={},
         )
 
+        self.assertIsNotNone(self.worker.nodespace_loop)
+        self.assertIsNotNone(self.worker.loop_manager)
+        self.assertTrue(self.worker.loop_manager.running)
+
+        self.assertIsNotNone(self.worker.nodespace_loop._manager)
         await self.worker.load(data)
 
         _d = deepcopy(data)
