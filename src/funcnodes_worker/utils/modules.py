@@ -149,9 +149,19 @@ async def install_package(
 
         try:
             # Execute the pip command as a subprocess.
+
+            if logger:
+                logger.info(f"Installing package '{package_name}'...")
+            else:
+                print(f"Installing package '{package_name}'...")
+
             await PackageInstallerTool().run(
                 package_name, version=version, upgrade=upgrade
             )
+            if logger:
+                logger.debug(f"Installed package '{package_name}'...")
+            else:
+                print(f"Installed package '{package_name}'...")
             return True
         except Exception:
             # Return False if pip returns an error.
