@@ -1200,62 +1200,66 @@ class Worker(ABC):
     async def load(self, data: WorkerState | str | None = None):
         self.clear()
         self.logger.debug("Loading worker")
-        if data is None:
-            if not self.local_nodespace.exists():
-                return
-            try:
-                with open(self.local_nodespace, "r", encoding="utf-8") as f:
-                    worker_data: WorkerState = json.loads(f.read(), cls=JSONDecoder)
-            except json.JSONDecodeError as e:
-                self.logger.error(f"Error loading worker data: {e}")
-                worker_data = self.get_save_state()
-
-        elif isinstance(data, str):
-            worker_data: WorkerState = json.loads(data, cls=JSONDecoder)
-
-        elif isinstance(data, dict):
-            worker_data = cast(WorkerState, data)
-        else:
-            raise ValueError("data must be a dict or a json string or None")
-
-        if "backend" not in worker_data:
-            worker_data["backend"] = NodeSpaceJSON(nodes=[], edges=[], prop={})
-        if "view" not in worker_data:
-            worker_data["view"] = ViewState(nodes={}, renderoptions={})
-
-        if "external_workers" in worker_data:
-            for worker_id, worker_uuid in worker_data["external_workers"].items():
-                found = False
-                for worker in self.local_worker_lookup_loop.worker_classes:
-                    if worker.NODECLASSID == worker_id:
-                        for instance in worker_uuid:
-                            if isinstance(instance, str):
-                                w = self.add_local_worker(worker, instance)
-                            else:
-                                w = self.add_local_worker(worker, instance["uuid"])
-                                if "name" in instance:
-                                    w.name = instance["name"]
-                            found = True
-                if not found:
-                    self.logger.warning(f"External worker {worker_id} not found")
-
-        if "nodes" in worker_data["backend"]:
-            nodes = worker_data["backend"]["nodes"]
-            for node in nodes:
+        self.nodespace_loop.pause()
+        try:
+            if data is None:
+                if not self.local_nodespace.exists():
+                    return
                 try:
-                    await self.install_node(node)
-                except NodeClassNotFoundError:
-                    pass
+                    with open(self.local_nodespace, "r", encoding="utf-8") as f:
+                        worker_data: WorkerState = json.loads(f.read(), cls=JSONDecoder)
+                except json.JSONDecodeError as e:
+                    self.logger.error(f"Error loading worker data: {e}")
+                    worker_data = self.get_save_state()
 
-        if "meta" in worker_data:
-            if "id" in worker_data["meta"]:
-                self._set_nodespace_id(worker_data["meta"]["id"])
-        self.nodespace.deserialize(worker_data["backend"])
-        self.viewdata = worker_data["view"]
-        self.nodespace.set_property("files_dir", self.files_path.as_posix())
+            elif isinstance(data, str):
+                worker_data: WorkerState = json.loads(data, cls=JSONDecoder)
 
-        await self.worker_event("fullsync")
-        return self.request_save()
+            elif isinstance(data, dict):
+                worker_data = cast(WorkerState, data)
+            else:
+                raise ValueError("data must be a dict or a json string or None")
+
+            if "backend" not in worker_data:
+                worker_data["backend"] = NodeSpaceJSON(nodes=[], edges=[], prop={})
+            if "view" not in worker_data:
+                worker_data["view"] = ViewState(nodes={}, renderoptions={})
+
+            if "external_workers" in worker_data:
+                for worker_id, worker_uuid in worker_data["external_workers"].items():
+                    found = False
+                    for worker in self.local_worker_lookup_loop.worker_classes:
+                        if worker.NODECLASSID == worker_id:
+                            for instance in worker_uuid:
+                                if isinstance(instance, str):
+                                    w = self.add_local_worker(worker, instance)
+                                else:
+                                    w = self.add_local_worker(worker, instance["uuid"])
+                                    if "name" in instance:
+                                        w.name = instance["name"]
+                                found = True
+                    if not found:
+                        self.logger.warning(f"External worker {worker_id} not found")
+
+            if "nodes" in worker_data["backend"]:
+                nodes = worker_data["backend"]["nodes"]
+                for node in nodes:
+                    try:
+                        await self.install_node(node)
+                    except NodeClassNotFoundError:
+                        pass
+
+            if "meta" in worker_data:
+                if "id" in worker_data["meta"]:
+                    self._set_nodespace_id(worker_data["meta"]["id"])
+            self.nodespace.deserialize(worker_data["backend"])
+            self.viewdata = worker_data["view"]
+            self.nodespace.set_property("files_dir", self.files_path.as_posix())
+
+            await self.worker_event("fullsync")
+            return self.request_save()
+        finally:
+            self.nodespace_loop.resume_in(2)
 
     # endregion save and load
 
