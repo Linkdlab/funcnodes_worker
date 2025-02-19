@@ -86,7 +86,10 @@ class CustomLoop(ABC):
             await asyncio.sleep(delay)
             self.resume()
 
-        self.manager.async_call(_resume())
+        if self.manager:
+            self.manager.async_call(_resume())
+        else:
+            asyncio.create_task(_resume())
 
 
 class LoopManager:

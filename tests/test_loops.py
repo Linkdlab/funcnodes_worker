@@ -47,6 +47,34 @@ class TestCustomLoop(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.loop.running)
         self.assertTrue(self.loop.stopped)
 
+    async def test_pause(self):
+        class CountingLoop(CustomLoop):
+            counter = 0
+
+            async def loop(self):
+                self.counter += 1
+
+        loop = CountingLoop()
+        asyncio.create_task(loop.continuous_run())
+        await asyncio.sleep(0.3)
+        self.assertGreater(loop.counter, 1)
+        loop.pause()
+        fixed_counter = loop.counter
+        await asyncio.sleep(0.3)
+        self.assertEqual(loop.counter, fixed_counter)
+        loop.resume()
+        await asyncio.sleep(0.3)
+        self.assertGreater(loop.counter, fixed_counter)
+        loop.pause()
+        fixed_counter = loop.counter
+        await asyncio.sleep(0.3)
+        self.assertEqual(loop.counter, fixed_counter)
+        loop.resume_in(1)
+        await asyncio.sleep(0.5)
+        self.assertEqual(loop.counter, fixed_counter)
+        await asyncio.sleep(1)
+        self.assertGreater(loop.counter, fixed_counter)
+
     async def test_continuous_run_calls_loop(self):
         self.loop._running = True
         task = asyncio.create_task(self.loop.continuous_run())

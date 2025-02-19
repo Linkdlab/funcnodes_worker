@@ -486,7 +486,7 @@ class WorkerJson(TypedDict):
     update_on_startup: PossibleUpdates
 
 
-runsstateT = Literal["undefined", "running", "stopping", "stopped"]
+runsstateT = Literal["undefined", "starting", "running", "stopping", "stopped"]
 
 
 class Worker(ABC):
@@ -1898,6 +1898,14 @@ class Worker(ABC):
     @property
     def runstate(self) -> runsstateT:
         return self._runstate
+
+    async def wait_for_running(self):
+        if self._runstate not in ["undefined", "starting", "running"]:
+            raise RuntimeError(
+                "Worker not started or running, you would wait a long time"
+            )
+        while not self.is_running():
+            await asyncio.sleep(0.1)
 
     async def _prerun(self):
         self._runstate = "starting"
