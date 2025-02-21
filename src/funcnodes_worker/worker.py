@@ -1899,6 +1899,10 @@ class Worker(ABC):
     def runstate(self) -> runsstateT:
         return self._runstate
 
+    @exposed_method()
+    def get_runstate(self) -> runsstateT:
+        return self.runstate
+
     async def wait_for_running(self):
         if self._runstate not in ["undefined", "starting", "running"]:
             raise RuntimeError(
