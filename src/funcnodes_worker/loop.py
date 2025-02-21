@@ -121,7 +121,7 @@ class LoopManager:
                 await loop.continuous_run()
                 self.remove_loop(loop)
 
-            t = self._loop.create_task(looprunner())
+            t = self.async_call(looprunner())
             self._loop_tasks.append(t)
             return t
         else:
@@ -139,7 +139,7 @@ class LoopManager:
                 if not is_running:
                     self._loop.run_until_complete(loop.stop())
                 else:
-                    _ = self._loop.create_task(loop.stop())
+                    _ = self.async_call(loop.stop())
             except Exception as e:
                 self._worker.logger.exception(e)
                 raise e
