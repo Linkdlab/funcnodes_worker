@@ -156,7 +156,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         expected = {
             "uuid": self.worker.uuid(),
             "name": self.worker.name(),
-            "data_path": str(Path(self.tempdir.name).absolute().resolve()),
+            "data_path": Path(self.tempdir.name).absolute().resolve().as_posix(),
             "package_dependencies": {},
             "pid": os.getpid(),
             "python_path": sys.executable,

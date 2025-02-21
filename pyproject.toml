@@ -1,8 +1,10 @@
 [project]
 name = "funcnodes-worker"
-version = "0.1.10"
+version = "0.1.11"
 description = "Worker package for FuncNodes"
 readme = "README.md"
+authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
+
 requires-python = ">=3.11"
 dependencies = [
  "asynctoolkit>=0.1.1",
@@ -19,6 +21,7 @@ dev = [
     "snakeviz>=2.2.2",
     "vulture>=2.14",
     "funcnodes-worker[all]",
+    "funcnodes>=0.5.35",
 ]
 
 [project.optional-dependencies]

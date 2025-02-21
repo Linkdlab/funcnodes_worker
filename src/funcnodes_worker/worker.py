@@ -1899,6 +1899,10 @@ class Worker(ABC):
     def runstate(self) -> runsstateT:
         return self._runstate
 
+    @exposed_method()
+    def get_runstate(self) -> runsstateT:
+        return self.runstate
+
     async def wait_for_running(self):
         if self._runstate not in ["undefined", "starting", "running"]:
             raise RuntimeError(
@@ -1932,11 +1936,15 @@ class Worker(ABC):
     async def run_forever_async(self):
         self.logger.debug("Starting worker forever async")
         await self._prerun()
+        await self.worker_event("starting")
         try:
             self._runstate = "running"
             await self.loop_manager.run_forever_async()
         finally:
             self.stop()
+
+        # run 1 second to ensure all tasks are finished
+        await asyncio.sleep(1)
 
     def run_forever_threaded(self, wait_for_running=True):
         self.logger.debug("Starting worker forever in sub thread")
@@ -1959,6 +1967,8 @@ class Worker(ABC):
         worker.logger.debug("Worker initialized and running stopped")
 
     def stop(self):
+        if self.is_running():
+            self.loop_manager.async_call(self.worker_event("stopping"))
         self._runstate = "stopped"
         self.save()
         self._save_disabled = True
