@@ -1963,10 +1963,12 @@ class Worker(ABC):
         worker.logger.debug("Worker initialized and running stopped")
 
     def stop(self):
+        if self.is_running():
+            self.loop_manager.async_call(self.worker_event("stopping"))
         self._runstate = "stopped"
         self.save()
         self._save_disabled = True
-        self.loop_manager.async_call(self.worker_event("stopping"))
+
         self.loop_manager.stop()
         for handler in self.logger.handlers:
             try:
