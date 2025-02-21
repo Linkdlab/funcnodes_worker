@@ -1932,11 +1932,15 @@ class Worker(ABC):
     async def run_forever_async(self):
         self.logger.debug("Starting worker forever async")
         await self._prerun()
+        await self.worker_event("starting")
         try:
             self._runstate = "running"
             await self.loop_manager.run_forever_async()
         finally:
             self.stop()
+
+        # run 1 second to ensure all tasks are finished
+        await asyncio.sleep(1)
 
     def run_forever_threaded(self, wait_for_running=True):
         self.logger.debug("Starting worker forever in sub thread")
@@ -1962,7 +1966,7 @@ class Worker(ABC):
         self._runstate = "stopped"
         self.save()
         self._save_disabled = True
-
+        self.loop_manager.async_call(self.worker_event("stopping"))
         self.loop_manager.stop()
         for handler in self.logger.handlers:
             try:
