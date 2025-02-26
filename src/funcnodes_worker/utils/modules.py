@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 import logging
 from asynctoolkit.defaults.http import HTTPTool
 from asynctoolkit.defaults.packageinstaller import PackageInstallerTool
-
+import asyncio
 from .._opts import venvmngr
 
 
@@ -228,8 +228,15 @@ async def install_repo(
     ):
         return None
 
-    # Reload the base configuration (without reloading repos from CSV)
-    await reload_base(with_repos=False)
+    try:
+        # Reload the base configuration (without reloading repos from CSV)
+        await reload_base(with_repos=False)
+    except Exception:
+        # sometimes the reload fails, so we try again after a delay
+        # this seems to happen if the packaes is installed but needs some more time
+        # to be available
+        await asyncio.sleep(1)
+        await reload_base(with_repos=False)
 
     if package_name in AVAILABLE_REPOS:
         try_import_repo(package_name)
