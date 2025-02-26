@@ -780,7 +780,7 @@ class Worker(ABC):
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
-                    await self.add_package_dependency(name, dep, save=False)
+                    await self.add_package_dependency(name, dep, save=False, sync=False)
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -821,7 +821,7 @@ class Worker(ABC):
                     try:
                         pkg = _shelves_dependencies_to_package(v)
                         await self.add_package_dependency(
-                            pkg["package"], pkg, save=False
+                            pkg["package"], pkg, save=False, sync=False
                         )
                     except Exception as e:
                         self.logger.exception(e)
@@ -830,10 +830,12 @@ class Worker(ABC):
                     try:
                         pkg = _shelves_dependencies_to_package(dep)
                         await self.add_package_dependency(
-                            pkg["package"], pkg, save=False
+                            pkg["package"], pkg, save=False, sync=False
                         )
                     except Exception as e:
                         self.logger.exception(e)
+        await self.worker_event("fullsync")
+        await asyncio.sleep(1)
 
     @exposed_method()
     def export_worker(self, with_files: bool = True) -> bytes:
@@ -1356,6 +1358,7 @@ class Worker(ABC):
         dep: Optional[PackageDependency] = None,
         save: bool = True,
         version: Optional[str] = None,
+        sync: bool = True,
     ):
         if version == "latest":
             version = None
@@ -1507,7 +1510,8 @@ class Worker(ABC):
             )
             raise exc
         finally:
-            await self.worker_event("fullsync")
+            if sync:
+                await self.worker_event("fullsync")
 
     @exposed_method()
     async def remove_package_dependency(
