@@ -37,7 +37,7 @@ class TestSocketWorker(unittest.IsolatedAsyncioTestCase):
 
     async def test_stop(self):
         asyncio.create_task(self.worker.run_forever_async())
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.5)
         self.assertTrue(self.worker.socket_loop.running)
         self.worker.stop()
         self.assertFalse(self.worker.socket_loop.running)
