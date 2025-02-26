@@ -19,7 +19,7 @@ from funcnodes_core.testing import (
 fn_set_in_test()
 
 
-class TestWorkerClass(Worker):
+class _TestWorkerClass(Worker):
     def _on_nodespaceerror(
         self,
         error: Exception,
@@ -42,7 +42,7 @@ testshelf = fn.Shelf(
 
 
 class TestWorkerInitCases(TestCase):
-    Workerclass = TestWorkerClass
+    Workerclass = _TestWorkerClass
     workerkwargs = {}
 
     def setUp(self):
@@ -128,7 +128,7 @@ class TestWorkerInitCases(TestCase):
 
 
 class TestWorkerCase(IsolatedAsyncioTestCase):
-    Workerclass = TestWorkerClass
+    Workerclass = _TestWorkerClass
 
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
@@ -320,7 +320,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     async def test_run(self):
         asyncio.create_task(self.worker.run_forever_async())
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         self.assertTrue(self.worker.loop_manager.running)
         self.worker.stop()
         self.assertFalse(self.worker.loop_manager.running)
@@ -423,7 +423,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
 
 class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
-    Workerclass = TestWorkerClass
+    Workerclass = _TestWorkerClass
 
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()

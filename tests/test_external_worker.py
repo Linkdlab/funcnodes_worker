@@ -58,7 +58,7 @@ class TimerLoop(CustomLoop):
     #  print("timer", self.last_run)
 
 
-class TestWorker(RemoteWorker):
+class _TestWorker(RemoteWorker):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.timerloop = TimerLoop(self)
@@ -169,7 +169,7 @@ class ExternalWorker1(FuncNodesExternalWorker):
 class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory(prefix="funcnodes")
-        self.retmoteworker = TestWorker(data_path=self.tempdir.name)
+        self.retmoteworker = _TestWorker(data_path=self.tempdir.name)
         self._loop = asyncio.get_event_loop()
         self.runtask = self._loop.create_task(self.retmoteworker.run_forever_async())
         t = time.time()
@@ -183,7 +183,7 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         self.retmoteworker.stop()
-        
+
         async with asyncio.timeout(5):
             await self.runtask
 
