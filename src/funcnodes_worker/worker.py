@@ -1059,8 +1059,12 @@ class Worker(ABC):
             "version": fn.__version__,
         }
 
-    def upload(self, data: bytes, filename: Path) -> Path:
+    @exposed_method()
+    def upload(self, data: Union[bytes, str], filename: Path) -> Path:
         # filename = f"{hexcode}_{filename}"
+        if isinstance(data, str):
+            data = base64.b64decode(data)
+
         full_path = self.files_path / filename
         # Ensure the directory exists is not neccessary, because
         # the files_path is created in the files_path property
