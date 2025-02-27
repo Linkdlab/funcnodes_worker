@@ -1061,13 +1061,19 @@ class Worker(ABC):
 
     @exposed_method()
     def upload(self, data: Union[bytes, str], filename: Path) -> Path:
-        # filename = f"{hexcode}_{filename}"
+        full_path = (self.files_path / filename).resolve()
+
+        # make sure full_path is a subpath of files_path
+        if not full_path.is_relative_to(self.files_path):
+            raise ValueError("filename must be a relative subpath of the files_path")
+
+        # if data is a string, decode it
         if isinstance(data, str):
             data = base64.b64decode(data)
 
-        full_path = self.files_path / filename
-        # Ensure the directory exists is not neccessary, because
-        # the files_path is created in the files_path property
+        # Ensure the directory exists
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+
         with open(full_path, "wb") as f:
             f.write(data)
         self.nodespace.set_property("files_dir", self.files_path.as_posix())
