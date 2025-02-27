@@ -295,15 +295,13 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         edges = self.worker.get_edges()
         self.assertEqual(len(edges), 1)
         self.assertEqual(
-            edges,
-            [
-                (
-                    node1.uuid,
-                    "out",
-                    node2.uuid,
-                    "a",
-                )
-            ],
+            edges[0],
+            (
+                node1.uuid,
+                "out",
+                node2.uuid,
+                "a",
+            ),
         )
 
     def test_remove_edge(self):
@@ -435,11 +433,13 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
         async with asyncio.timeout(5):
             while self.worker.runstate != "running":
                 await asyncio.sleep(0.1)
+        await asyncio.sleep(0.5)
         node_id = "test_node"
         self.node1 = self.worker.add_node(node_id)
         self.node2 = self.worker.add_node(node_id)
+        await asyncio.sleep(0.5)
         self.worker.add_edge(self.node1.uuid, "out", self.node2.uuid, "a")
-        await asyncio.sleep(0.1)  # let the nodes trigger
+        await asyncio.sleep(0.5)  # let the nodes trigger
 
     def tearDown(self):
         self.worker.stop()

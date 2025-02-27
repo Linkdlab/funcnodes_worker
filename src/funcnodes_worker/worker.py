@@ -86,12 +86,12 @@ class MetaInfo(TypedDict):
 
 
 class NodeViewState(TypedDict):
-    pos: Tuple[int, int]
-    size: Tuple[int, int]
+    pos: Optional[Tuple[int, int]]
+    size: Optional[Tuple[int, int]]
 
 
 class ViewState(TypedDict):
-    nodes: dict[str, NodeViewState]
+    nodes: Optional[dict[str, NodeViewState]]
     renderoptions: fn.config.RenderOptions
 
 
@@ -541,7 +541,6 @@ class Worker(ABC):
 
         self._nodespace_id: str = uuid4().hex
         self.viewdata: ViewState = {
-            "nodes": {},
             "renderoptions": fn.config.FUNCNODES_RENDER_OPTIONS,
         }
         self._uuid = uuid4().hex if not uuid else uuid
@@ -1031,22 +1030,20 @@ class Worker(ABC):
     @exposed_method()
     def view_state(self) -> ViewState:
         """returns the view state of the worker"""
-        available_nodeids = []
-        if "nodes" not in self.viewdata:
-            self.viewdata["nodes"] = {}
-        for node in self.nodespace.nodes:
-            available_nodeids.append(node.uuid)
-            if node.uuid not in self.viewdata["nodes"]:
-                self.viewdata["nodes"][node.uuid] = NodeViewState(
-                    pos=(0, 0),
-                    size=(200, 250),
-                )
-        excess_nodes = set(self.viewdata["nodes"].keys()) - set(available_nodeids)
-        for nodeid in excess_nodes:
-            del self.viewdata["nodes"][nodeid]
 
         self.viewdata["renderoptions"] = fn.config.FUNCNODES_RENDER_OPTIONS
-        return self.viewdata
+        viewdata = self.viewdata.copy()
+
+        available_nodeids = []
+        viewdata["nodes"] = {}
+        for node in self.nodespace.nodes:
+            available_nodeids.append(node.uuid)
+            viewdata["nodes"][node.uuid] = NodeViewState(
+                pos=node.get_property("frontend:pos", (0, 0)),
+                size=node.get_property("frontend:size", (200, 250)),
+            )
+
+        return viewdata
 
     @exposed_method()
     def heartbeat(self):
@@ -1119,19 +1116,22 @@ class Worker(ABC):
 
     @exposed_method()
     def get_nodes(self, with_frontend: bool = False) -> List[ExtendedFullNodeJSON]:
+        nodes_viewdata = self.viewdata.get("nodes", {})
+        for node in self.nodespace.nodes:
+            if node.uuid in nodes_viewdata:
+                self.update_node_view(node, nodes_viewdata[node.uuid])
+
         nodes = [
             ExtendedFullNodeJSON(**nodedata, frontend=None)
             for nodedata in self.nodespace.full_nodes_serialize()
         ]
+
         if with_frontend:
-            nodes_viewdata = self.viewdata.get("nodes", {})
+            # this will be deprecated in the future
             for node in nodes:
-                node["frontend"] = nodes_viewdata.get(
-                    node["id"],
-                    NodeViewState(
-                        pos=(0, 0),
-                        size=(200, 250),
-                    ),
+                node["frontend"] = NodeViewState(
+                    pos=node.get("properties", {}).get("frontend:pos", (0, 0)),
+                    size=node.get("properties", {}).get("frontend:size", (200, 250)),
                 )
 
         return nodes
@@ -1264,9 +1264,14 @@ class Worker(ABC):
             if "meta" in worker_data:
                 if "id" in worker_data["meta"]:
                     self._set_nodespace_id(worker_data["meta"]["id"])
-            self.nodespace.deserialize(worker_data["backend"])
             self.viewdata = worker_data["view"]
             self.nodespace.set_property("files_dir", self.files_path.as_posix())
+            self.nodespace.deserialize(worker_data["backend"])
+
+            nodesview = self.viewdata.get("nodes", {})
+            for node in self.nodespace.nodes:
+                if node.id in nodesview:
+                    self.update_node_view(node, nodesview[node.id])
 
             await self.worker_event("fullsync")
             return self.request_save()
@@ -1796,11 +1801,15 @@ class Worker(ABC):
     @requests_save
     @exposed_method()
     def update_node_view(self, nid: str, data: NodeViewState):
-        if nid not in self.viewdata["nodes"]:
-            self.viewdata["nodes"][nid] = data
-        else:
-            self.viewdata["nodes"][nid].update(data)
-        return self.viewdata["nodes"][nid]
+        node = (
+            self.get_node(nid)
+            if not isinstance(nid, Node)  # for internal use
+            else nid
+        )  # for internal use
+        if "pos" in data and data["pos"]:
+            node.set_property("frontend:pos", data["pos"])
+        if "size" in data and data["size"]:
+            node.set_property("frontend:size", data["size"])
 
     @exposed_method()
     def set_io_value(self, nid: str, ioid: str, value: Any, set_default: bool = False):
