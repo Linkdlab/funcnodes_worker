@@ -1,7 +1,6 @@
 import unittest
 import asyncio
-import json
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 from funcnodes_worker import SocketWorker
 from funcnodes_core.testing import (
     teardown as fn_teardown,
@@ -37,7 +36,8 @@ class TestSocketWorker(unittest.IsolatedAsyncioTestCase):
 
     async def test_stop(self):
         asyncio.create_task(self.worker.run_forever_async())
-        await asyncio.sleep(1.5)
+        await self.worker.wait_for_running(timeout=10)
+        await asyncio.sleep(1)
         self.assertTrue(self.worker.socket_loop.running)
         self.worker.stop()
         self.assertFalse(self.worker.socket_loop.running)
