@@ -16,8 +16,6 @@ from funcnodes_core.testing import (
     set_in_test as fn_set_in_test,
 )
 
-fn_set_in_test()
-
 
 class _TestWorkerClass(Worker):
     def _on_nodespaceerror(
@@ -46,6 +44,7 @@ class TestWorkerInitCases(TestCase):
     workerkwargs = {}
 
     def setUp(self):
+        fn_set_in_test()
         self.tempdir = tempfile.TemporaryDirectory()
         self.workerkwargs["data_path"] = self.tempdir.name
         self.workerkwargs["uuid"] = "testuuid"
@@ -140,6 +139,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
+        fn_set_in_test()
         self.worker = self.Workerclass(
             data_path=Path(self.tempdir.name), default_nodes=[testshelf], debug=True
         )
@@ -434,6 +434,7 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
+        fn_set_in_test()
         self.worker = self.Workerclass(
             data_path=Path(self.tempdir.name), default_nodes=[testshelf], debug=True
         )
