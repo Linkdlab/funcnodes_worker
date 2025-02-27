@@ -1760,7 +1760,7 @@ class Worker(ABC):
             raise ValueError(f"Node with id {nid} not found")
         ans = {}
 
-        for k, v in data.get("properties").items():
+        for k, v in data.get("properties", {}).items():
             node.set_property(k, v)
 
         if "name" in data:
@@ -1922,13 +1922,22 @@ class Worker(ABC):
     def get_runstate(self) -> runsstateT:
         return self.runstate
 
-    async def wait_for_running(self):
+    async def wait_for_running(self, timeout: Optional[float] = None):
         if self._runstate not in ["undefined", "starting", "running"]:
             raise RuntimeError(
                 "Worker not started or running, you would wait a long time"
             )
-        while not self.is_running():
-            await asyncio.sleep(0.1)
+
+        if timeout is not None:
+            timeout = float(timeout)
+            if timeout <= 0:
+                raise ValueError("Timeout must be greater than 0")
+            async with asyncio.timeout(timeout):
+                while not self.is_running():
+                    await asyncio.sleep(min(0.1, timeout / 10))
+        else:
+            while not self.is_running():
+                await asyncio.sleep(0.1)
 
     async def _prerun(self):
         self._runstate = "starting"

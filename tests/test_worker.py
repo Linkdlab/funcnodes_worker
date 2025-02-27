@@ -16,8 +16,6 @@ from funcnodes_core.testing import (
     set_in_test as fn_set_in_test,
 )
 
-fn_set_in_test()
-
 
 class _TestWorkerClass(Worker):
     def _on_nodespaceerror(
@@ -46,6 +44,7 @@ class TestWorkerInitCases(TestCase):
     workerkwargs = {}
 
     def setUp(self):
+        fn_set_in_test()
         self.tempdir = tempfile.TemporaryDirectory()
         self.workerkwargs["data_path"] = self.tempdir.name
         self.workerkwargs["uuid"] = "testuuid"
@@ -87,7 +86,15 @@ class TestWorkerInitCases(TestCase):
             daemon=True,
         )
         runthread.start()
-        time.sleep(1)
+        workerdir = fn.config.get_config_dir() / "workers"
+
+        # wait max 10 seconds for the worker to start
+        for i in range(100):
+            if workerdir.exists():
+                break
+            time.sleep(0.1)
+        time.sleep(0.5)
+
         newfiles = os.listdir(fn.config.get_config_dir() / "workers")
 
         self.assertEqual(len(set(newfiles) - set(olfiles)), 1, (olfiles, newfiles))
@@ -132,6 +139,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
+        fn_set_in_test()
         self.worker = self.Workerclass(
             data_path=Path(self.tempdir.name), default_nodes=[testshelf], debug=True
         )
@@ -253,10 +261,6 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
                 },
                 "edges": [],
             },
-            "view": {
-                "nodes": {},
-                "renderoptions": {"typemap": {}, "inputconverter": {}},
-            },
             "worker": {},
             "worker_dependencies": [],
             "progress_state": {
@@ -267,6 +271,8 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
             },
             "meta": {"id": self.worker.nodespace_id, "version": fn.__version__},
         }
+
+        ser.pop("view", None)  # because this differes on other installations
         self.assertEqual(ser, expected)
 
     def test_add_node(self):
@@ -320,14 +326,14 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     async def test_run(self):
         asyncio.create_task(self.worker.run_forever_async())
-        await asyncio.sleep(2)
+        await self.worker.wait_for_running(timeout=10)
         self.assertTrue(self.worker.loop_manager.running)
         self.worker.stop()
         self.assertFalse(self.worker.loop_manager.running)
 
     async def test_run_threaded(self):
         runthread = self.worker.run_forever_threaded()
-        await asyncio.sleep(1)
+        await self.worker.wait_for_running(timeout=10)
         self.worker.stop()
         runthread.join()
         self.assertFalse(self.worker.loop_manager.running)
@@ -340,7 +346,8 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     async def test_run_double(self):
         t1 = asyncio.create_task(self.worker.run_forever_async())
-        await asyncio.sleep(1)
+        await self.worker.wait_for_running(timeout=10)
+
         t2 = asyncio.create_task(self.worker.run_forever_async())
         with self.assertRaises(RuntimeError):
             await t2
@@ -355,7 +362,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     async def test_load(self):
         asyncio.create_task(self.worker.run_forever_async())
-        await self.worker.wait_for_running()
+        await self.worker.wait_for_running(timeout=10)
         data = WorkerState(
             backend={
                 "nodes": [],
@@ -427,12 +434,13 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
+        fn_set_in_test()
         self.worker = self.Workerclass(
             data_path=Path(self.tempdir.name), default_nodes=[testshelf], debug=True
         )
 
         asyncio.create_task(self.worker.run_forever_async())
-        async with asyncio.timeout(5):
+        async with asyncio.timeout(10):
             while self.worker.runstate != "running":
                 await asyncio.sleep(0.1)
         await asyncio.sleep(0.5)
@@ -472,17 +480,17 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
             ),
         )
         vs = self.worker.view_state()
-        exp = {"renderoptions": {"inputconverter": {}, "typemap": {}}, "nodes": {}}
-        exp["nodes"][self.node1.uuid] = {
+        exp_nodes = {}
+        exp_nodes[self.node1.uuid] = {
             "pos": (10, 10),
             "size": (100, 100),
         }
-        exp["nodes"][self.node2.uuid] = {
+        exp_nodes[self.node2.uuid] = {
             "pos": (0, 0),
             "size": (200, 250),
         }
 
-        self.assertEqual(vs, exp)
+        self.assertEqual(vs["nodes"], exp_nodes)
 
     async def test_add_package_dependency(self):
         from funcnodes_worker.utils.modules import AVAILABLE_MODULES
