@@ -295,13 +295,15 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         edges = self.worker.get_edges()
         self.assertEqual(len(edges), 1)
         self.assertEqual(
-            edges[0],
-            (
-                node1.uuid,
-                "out",
-                node2.uuid,
-                "a",
-            ),
+            edges,
+            [
+                (
+                    node1.uuid,
+                    "out",
+                    node2.uuid,
+                    "a",
+                )
+            ],
         )
 
     def test_remove_edge(self):
