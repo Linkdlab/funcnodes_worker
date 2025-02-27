@@ -160,14 +160,6 @@ class ExtendedFullNodeJSON(FullNodeJSON):
     frontend: Optional[NodeViewState]
 
 
-class NodeUpdateJSON(NodeJSON):
-    """
-    NodeUpdateJSON is the interface for the serialization of a Node with additional data
-    """
-
-    frontend: NodeViewState
-
-
 JSONMessage = Union[CmdMessage, ResultMessage, ErrorMessage, ProgressStateMessage]
 
 EXTERNALWORKERLIB = "_external_worker"
@@ -1079,9 +1071,11 @@ class Worker(ABC):
 
     @exposed_method()
     def get_save_state(self) -> WorkerState:
+        ws = self.view_state()
+        ws.pop("nodes", None)
         data: WorkerState = {
             "backend": saving.serialize_nodespace_for_saving(self.nodespace),
-            "view": self.view_state(),
+            "view": ws,
             "meta": self.get_meta(),
             "dependencies": self.nodespace.lib.get_dependencies(),
             "external_workers": {
@@ -1235,7 +1229,7 @@ class Worker(ABC):
             if "backend" not in worker_data:
                 worker_data["backend"] = NodeSpaceJSON(nodes=[], edges=[], prop={})
             if "view" not in worker_data:
-                worker_data["view"] = ViewState(nodes={}, renderoptions={})
+                worker_data["view"] = ViewState(renderoptions={})
 
             if "external_workers" in worker_data:
                 for worker_id, worker_uuid in worker_data["external_workers"].items():
@@ -1270,8 +1264,8 @@ class Worker(ABC):
 
             nodesview = self.viewdata.get("nodes", {})
             for node in self.nodespace.nodes:
-                if node.id in nodesview:
-                    self.update_node_view(node, nodesview[node.id])
+                if node.uuid in nodesview:
+                    self.update_node_view(node, nodesview[node.uuid])
 
             await self.worker_event("fullsync")
             return self.request_save()
@@ -1757,7 +1751,7 @@ class Worker(ABC):
 
     @requests_save
     @exposed_method()
-    def update_node(self, nid: str, data: NodeUpdateJSON):
+    def update_node(self, nid: str, data: NodeJSON):
         try:
             node = self.get_node(nid)
         except Exception:
@@ -1765,8 +1759,9 @@ class Worker(ABC):
         if not node:
             raise ValueError(f"Node with id {nid} not found")
         ans = {}
-        if "frontend" in data:
-            ans["frontend"] = self.update_node_view(nid, data["frontend"])
+
+        for k, v in data.get("properties", {}).items():
+            node.set_property(k, v)
 
         if "name" in data:
             n = data["name"]
@@ -1806,6 +1801,7 @@ class Worker(ABC):
             if not isinstance(nid, Node)  # for internal use
             else nid
         )  # for internal use
+
         if "pos" in data and data["pos"]:
             node.set_property("frontend:pos", data["pos"])
         if "size" in data and data["size"]:
@@ -1926,13 +1922,22 @@ class Worker(ABC):
     def get_runstate(self) -> runsstateT:
         return self.runstate
 
-    async def wait_for_running(self):
+    async def wait_for_running(self, timeout: Optional[float] = None):
         if self._runstate not in ["undefined", "starting", "running"]:
             raise RuntimeError(
                 "Worker not started or running, you would wait a long time"
             )
-        while not self.is_running():
-            await asyncio.sleep(0.1)
+
+        if timeout is not None:
+            timeout = float(timeout)
+            if timeout <= 0:
+                raise ValueError("Timeout must be greater than 0")
+            async with asyncio.timeout(timeout):
+                while not self.is_running():
+                    await asyncio.sleep(min(0.1, timeout / 10))
+        else:
+            while not self.is_running():
+                await asyncio.sleep(0.1)
 
     async def _prerun(self):
         self._runstate = "starting"
@@ -1941,7 +1946,9 @@ class Worker(ABC):
         self.logger.info("Starting worker forever")
         self.loop_manager.reset_loop()
         await self.ini_config()
+
         self.initialize_nodespace()
+
         self._save_disabled = False
 
         if (
