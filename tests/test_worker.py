@@ -495,3 +495,5 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
         self.assertTrue(
             os.path.exists(os.path.join(self.worker.files_path, "test.txt"))
         )
+        with self.assertRaises(ValueError):
+            self.worker.upload(data, "../test.txt")
