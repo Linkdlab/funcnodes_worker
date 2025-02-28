@@ -8,7 +8,7 @@ authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
 requires-python = ">=3.11"
 dependencies = [
  "asynctoolkit>=0.1.1",
- "funcnodes-core>=0.3.45",
+ "funcnodes-core>=0.3.46",
  "pip>=25.0.1",
 ]
 
