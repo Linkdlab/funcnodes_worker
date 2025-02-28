@@ -1065,7 +1065,7 @@ class Worker(ABC):
 
         with open(full_path, "wb") as f:
             f.write(data)
-        self.nodespace.set_property("files_dir", self.files_path.as_posix())
+        self.nodespace.set_secret_property("files_dir", self.files_path.as_posix())
 
         return filename
 
@@ -1259,7 +1259,7 @@ class Worker(ABC):
                 if "id" in worker_data["meta"]:
                     self._set_nodespace_id(worker_data["meta"]["id"])
             self.viewdata = worker_data["view"]
-            self.nodespace.set_property("files_dir", self.files_path.as_posix())
+            self.nodespace.set_secret_property("files_dir", self.files_path.as_posix())
             self.nodespace.deserialize(worker_data["backend"])
 
             nodesview = self.viewdata.get("nodes", {})
@@ -1703,7 +1703,7 @@ class Worker(ABC):
     def clear(self):
         self.logger.debug("Clearing worker")
         self.nodespace.clear()
-        self.nodespace.set_property("files_dir", self.files_path.as_posix())
+        self.nodespace.set_secret_property("files_dir", self.files_path.as_posix())
 
     @requests_save
     @exposed_method()
