@@ -12,6 +12,8 @@ import logging
 from asynctoolkit.defaults.http import HTTPTool
 from asynctoolkit.defaults.packageinstaller import PackageInstallerTool
 import asyncio
+from packaging.specifiers import Specifier, InvalidSpecifier
+from packaging.version import Version
 from .._opts import venvmngr
 
 
@@ -64,6 +66,22 @@ class AvailableRepo:
 
         # Only pass the keys that are defined in the dataclass fields
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+def version_string_to_Specifier(version: str) -> Specifier:
+    version = str(version).strip()
+    try:
+        return Specifier(version)
+    except InvalidSpecifier:
+        ## version can be only a single version, not a range, so we need to convert it to a range
+        return Specifier("==" + version)
+
+
+def version_to_range(version: str) -> str:
+    if not version:
+        return None
+    version = str(version).strip()
+    return str(version_string_to_Specifier(version))
 
 
 # Global dictionary mapping package names to their repository information
@@ -125,24 +143,35 @@ async def install_package(
     Returns:
       - bool: True if installation succeeded or package is already installed, False otherwise.
     """
+    if version:
+        target_ver = version_string_to_Specifier(version)
+    else:
+        target_ver = None
+    if logger:
+        info = logger.info
+        debug = logger.debug
+        error = logger.error
+    else:
+        info = print
+        debug = print
+        error = print
+
     if env_manager is None:
         try:
             # Check if the package is already installed using importlib.metadata
-            importlib.metadata.version(package_name)
+            installed_version = Version(importlib.metadata.version(package_name))
+            # check if the version fulfills the requirements
+            if target_ver and target_ver.contains(installed_version):
+                upgrade = False
+
             if upgrade:
-                if logger:
-                    logger.info(
-                        f"Package '{package_name}' is already installed. Upgrading..."
-                    )
-                else:
-                    print(
-                        f"Package '{package_name}' is already installed. Upgrading..."
-                    )
+                info(
+                    f"Package '{package_name}'({installed_version}) is already installed. Upgrading ({target_ver})...",
+                )
             else:
-                if logger:
-                    logger.info(f"Package '{package_name}' is already installed.")
-                else:
-                    print(f"Package '{package_name}' is already installed.")
+                info(
+                    f"Package '{package_name}'({installed_version}) is already installed {target_ver}.",
+                )
                 return True
         except importlib.metadata.PackageNotFoundError:
             pass
@@ -150,18 +179,14 @@ async def install_package(
         try:
             # Execute the pip command as a subprocess.
 
-            if logger:
-                logger.info(f"Installing package '{package_name}'...")
-            else:
-                print(f"Installing package '{package_name}'...")
+            info(f"Installing package '{package_name}'...")
 
             await PackageInstallerTool().run(
-                package_name, version=version, upgrade=upgrade
+                package_name,
+                version=str(target_ver) if target_ver else version,
+                upgrade=upgrade,
             )
-            if logger:
-                logger.debug(f"Installed package '{package_name}'...")
-            else:
-                print(f"Installed package '{package_name}'...")
+            debug(f"Installed package '{package_name}'...")
             return True
         except Exception:
             # Return False if pip returns an error.
@@ -175,27 +200,20 @@ async def install_package(
 
         env_manager.install_package(
             package_name=package_name,
-            version=version,
+            version=str(target_ver) if target_ver else version,
             upgrade=upgrade,
             stderr_callback=cb,
             stdout_callback=cb,
         )
         if len(lines) > 0:
             output = "\n".join(lines)
-            if logger:
-                logger.info(output)
-            else:
-                print(output)
+            info(output)
         return True
     except Exception as e:
-        if logger:
-            logger.error(e)
+        error(e)
         if len(lines) > 0:
             output = "\n".join(lines)
-            if logger:
-                logger.error(output)
-            else:
-                print(output)
+            error(output)
         return False
 
 

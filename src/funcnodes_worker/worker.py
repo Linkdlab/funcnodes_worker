@@ -73,6 +73,8 @@ from .utils.modules import (
     install_repo,
     try_import_module,
     install_package,
+    version_to_range,
+    version_string_to_Specifier,
 )
 from funcnodes_core.utils.files import write_json_secure
 
@@ -1259,9 +1261,9 @@ class Worker(ABC):
                 if "id" in worker_data["meta"]:
                     self._set_nodespace_id(worker_data["meta"]["id"])
             self.viewdata = worker_data["view"]
-            self.nodespace.set_secret_property("files_dir", self.files_path.as_posix())
             self.nodespace.deserialize(worker_data["backend"])
-
+            self.nodespace.remove_property("files_dir")
+            self.nodespace.set_secret_property("files_dir", self.files_path.as_posix())
             nodesview = self.viewdata.get("nodes", {})
             for node in self.nodespace.nodes:
                 if node.uuid in nodesview:
@@ -1369,8 +1371,12 @@ class Worker(ABC):
         version: Optional[str] = None,
         sync: bool = True,
     ):
-        if version == "latest":
-            version = None
+        if version == "latest" or not version:
+            version_spec = None
+            str_v_spec = None
+        else:
+            version_spec = version_string_to_Specifier(version)
+            str_v_spec = str(version_spec)
 
         if dep and "path" in dep:
             raise NotImplementedError("Local package dependencies not implemented")
@@ -1397,25 +1403,26 @@ class Worker(ABC):
             if repo.version and repo.version not in repo.releases:
                 repo.releases.append(repo.version)
 
-            if version:
-                if version[:2] in ["==", ">=", "<="]:
-                    subversion = version[2:]
-                else:
-                    subversion = version
-                if subversion not in repo.releases and subversion != repo.version:
+            if version_spec:
+                if (
+                    version_spec.version not in repo.releases
+                    and version_spec.version != repo.version
+                ):
                     raise ValueError(
-                        f"Version {subversion} not found in {name}, available: {repo.releases}"
+                        f"Version {version_spec.version} not found in {name}, available: {repo.releases}"
                     )
 
             if dep is None:
                 dep = PipPackageDependency(
                     package=repo.package_name,
-                    version=version,
+                    version=str_v_spec,
                 )
+            if version_spec:
+                dep["version"] = str_v_spec
 
             if not repo.installed:
                 await self.set_progress_state(
-                    message=f"Install dependency {name}",
+                    message=f"Install dependency {name}({dep.get('version', None)})",
                     status="info",
                     progress=0.40,
                     blocking=True,
@@ -1431,8 +1438,8 @@ class Worker(ABC):
                     raise ValueError(
                         f"Package {name} could not be installed with version {dep.get('version', None)}"
                     )
-            elif version:
-                if repo.version != subversion:
+            elif version_spec:
+                if not repo.version or not version_spec.contains(repo.version):
                     await self.set_progress_state(
                         message=f"Upgrade dependency {name}",
                         status="info",
@@ -1451,11 +1458,9 @@ class Worker(ABC):
                         )
 
             if not repo:
-                _name = name
-                version = dep.get("version", None)
-                if version:
-                    _name += version
-                raise ValueError(f"Package {_name} could not be added")
+                raise ValueError(
+                    f"Package {name}({dep.get('version', None)}) could not be added"
+                )
 
             module = repo.moduledata
 
@@ -1512,7 +1517,7 @@ class Worker(ABC):
             )
         except Exception as exc:
             await self.set_progress_state(
-                message=f"Could not install {name}: {exc}",
+                message=f"Could not install {name}({version}): {exc}",
                 status="error",
                 progress=0.0,
                 blocking=True,
