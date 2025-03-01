@@ -1459,7 +1459,7 @@ class Worker(ABC):
 
             if not repo:
                 raise ValueError(
-                    f"Package {name}({dep.get("version", None)}) could not be added"
+                    f"Package {name}({dep.get('version', None)}) could not be added"
                 )
 
             module = repo.moduledata
