@@ -1,6 +1,6 @@
 [project]
 name = "funcnodes-worker"
-version = "0.2.2"
+version = "0.2.3"
 description = "Worker package for FuncNodes"
 readme = "README.md"
 authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
@@ -8,7 +8,7 @@ authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
 requires-python = ">=3.11"
 dependencies = [
  "asynctoolkit>=0.1.1",
- "funcnodes-core>=0.3.46",
+ "funcnodes-core>=0.3.47",
  "pip>=25.0.1",
 ]
 
