@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 
-from funcnodes_core import JSONDecoder, FUNCNODES_LOGGER
+from funcnodes_core import FUNCNODES_LOGGER
 from funcnodes_worker import CustomLoop
 from .remote_worker import RemoteWorker
 from multiprocessing import Queue
@@ -42,8 +42,7 @@ class MsgLoop(CustomLoop):
                 queue_message = self._worker.receive_queue.get()
                 message = queue_message["msg"]
                 target = queue_message.get("target")
-                json_msg = json.loads(message, cls=JSONDecoder)
-                await self._worker.receive_message(json_msg, target=target)
+                await self._worker.receive_message(message, target=target)
         except Exception as e:
             FUNCNODES_LOGGER.exception(e)
 
