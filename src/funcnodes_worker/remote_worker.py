@@ -11,6 +11,7 @@ import json
 from funcnodes_core import (
     NodeSpace,
     JSONEncoder,
+    JSONDecoder,
 )
 import traceback
 from .worker import (
@@ -92,6 +93,10 @@ class RemoteWorker(Worker):
 
     async def receive_message(self, json_msg: dict, **sendkwargs):
         self.logger.debug(f"received message {json_msg}")
+
+        if isinstance(json_msg, str):
+            json_msg = json.loads(json_msg, cls=JSONDecoder)
+
         if "type" not in json_msg:
             return
         try:
