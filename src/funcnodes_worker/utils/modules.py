@@ -246,15 +246,7 @@ async def install_repo(
     ):
         return None
 
-    try:
-        # Reload the base configuration (without reloading repos from CSV)
-        await reload_base(with_repos=False)
-    except Exception:
-        # sometimes the reload fails, so we try again after a delay
-        # this seems to happen if the packaes is installed but needs some more time
-        # to be available
-        await asyncio.sleep(1)
-        await reload_base(with_repos=False)
+    await reload_base(with_repos=False)
 
     if package_name in AVAILABLE_REPOS:
         try_import_repo(package_name)
@@ -335,16 +327,38 @@ def try_import_repo(name: str) -> Optional[AvailableRepo]:
     return None
 
 
-async def reload_base(with_repos=True):
+async def reload_base(with_repos=True, retries=2, retries_delay=1):
     """
     Reload the core setup and update repository/module information.
 
     This function calls the global setup function, reloads repository data
     from the CSV (if requested), and synchronizes AVAILABLE_REPOS with the data
-    from AVAILABLE_MODULES (which holds installed module data).
+    from AVAILABLE_MODULES (which holds installed module data). If the core setup
+    fails, it retries a specified number of times with a delay between retries.
+    This is to prevent this function to fail because of newly installed modules, which
+    are only partially initialized.
+
+
+    Parameters:
+        - with_repos (bool): Whether to load repository data from the CSV.
+        - retries (int): Number of retries for the core setup.
+        - retries_delay (int): Delay between retries in seconds.
+
+    Raises:
+        - Exception: If the core setup fails after all retries.
     """
     # Initialize or refresh the core setup
-    setup()
+    retries = min(retries, 0)
+    while retries >= 0:
+        retries -= 1
+        try:
+            setup()
+        except Exception as e:
+            if retries < 0:
+                raise e
+            await asyncio.sleep(retries_delay)
+            continue
+
     if with_repos:
         try:
             await load_repo_csv()

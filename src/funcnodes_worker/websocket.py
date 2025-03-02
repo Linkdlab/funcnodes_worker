@@ -8,7 +8,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     aiohttp_cors = None
 
-from funcnodes_core import NodeSpace, JSONDecoder
+from funcnodes_core import NodeSpace
 from funcnodes_worker import CustomLoop
 from .remote_worker import RemoteWorker, RemoteWorkerJson
 
@@ -115,8 +115,9 @@ class WSLoop(CustomLoop):
             async for message in websocket:
                 if message.type == web.WSMsgType.TEXT:
                     self._worker.logger.debug(f"Received message: {message.data}")
-                    json_msg = json.loads(message.data, cls=JSONDecoder)
-                    await self._worker.receive_message(json_msg, websocket=websocket)
+                    await self._worker.receive_message(
+                        message.data, websocket=websocket
+                    )
                 elif message.type == web.WSMsgType.ERROR:
                     exc = websocket.exception()
                     if exc is not None:
@@ -161,9 +162,8 @@ class WSLoop(CustomLoop):
             # Here we assume the incoming data is JSON text.
             # If it's not JSON, you may need additional processing/validation.
             msg = data.decode("utf-8")
-            json_msg = json.loads(msg, cls=JSONDecoder)
 
-            await self._worker.receive_message(json_msg)
+            await self._worker.receive_message(msg)
             return web.Response(text="Message received", status=200)
         except Exception as e:
             FUNCNODES_LOGGER.exception(e)
