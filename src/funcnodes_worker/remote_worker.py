@@ -97,6 +97,8 @@ class RemoteWorker(Worker):
         try:
             if json_msg["type"] == "cmd":
                 await self._handle_cmd_msg(json_msg, **sendkwargs)
+            if json_msg["type"] == "ping":
+                await self.send('{"type": "pong"}')
         except Exception as e:
             self.logger.exception(e)
             await self.send(
