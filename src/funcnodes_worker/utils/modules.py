@@ -350,12 +350,12 @@ async def reload_base(with_repos=True, retries=2, retries_delay=1):
     # Initialize or refresh the core setup
     retries = min(retries, 0)
     while retries >= 0:
+        retries -= 1
         try:
             setup()
         except Exception as e:
-            if retries <= 0:
+            if retries < 0:
                 raise e
-            retries -= 1
             await asyncio.sleep(retries_delay)
             continue
 
