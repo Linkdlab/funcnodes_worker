@@ -210,8 +210,8 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
             "node_id": nodeid,
             "node_name": "Test",
             "io": {
-                "a": {"is_input": True, "value": fn.NoValue},
-                "out": {"is_input": False, "value": fn.NoValue},
+                "a": {"is_input": True, "value": fn.NoValue, "emit_value_set": True},
+                "out": {"is_input": False, "value": fn.NoValue, "emit_value_set": True},
             },
         }
         self.assertEqual(node.serialize(), expected_node_ser)
