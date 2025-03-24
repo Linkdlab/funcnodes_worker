@@ -1292,7 +1292,9 @@ class Worker(ABC):
 
     def _on_nodespaceevent(self, event, **kwargs):
         """handle nodespace events"""
-        getattr(self, f"on_nodespaceevent_{event}", self.on_nodespaceevent)(**kwargs)
+        getattr(self, f"on_nodespaceevent_{event}", self.on_nodespaceevent)(
+            event, **kwargs
+        )
 
     @abstractmethod
     def on_nodespaceevent(self, event, **kwargs):
