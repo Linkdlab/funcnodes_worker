@@ -1290,8 +1290,12 @@ class Worker(ABC):
         """send data to the any receiver, in base class it is a no-op"""
         pass
 
-    @abstractmethod
     def _on_nodespaceevent(self, event, **kwargs):
+        """handle nodespace events"""
+        getattr(self, f"on_nodespaceevent_{event}", self.on_nodespaceevent)(**kwargs)
+
+    @abstractmethod
+    def on_nodespaceevent(self, event, **kwargs):
         """handle nodespace events"""
 
     def _on_libevent(self, event, **kwargs):

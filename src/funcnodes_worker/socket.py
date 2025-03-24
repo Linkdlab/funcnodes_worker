@@ -186,9 +186,9 @@ class SocketWorker(RemoteWorker):
         """Handles an error in a NodeSpace."""
         return super()._on_nodespaceerror(error, src)
 
-    def _on_nodespaceevent(self, event: str, src: NodeSpace, **kwargs):
+    def on_nodespaceevent(self, event: str, src: NodeSpace, **kwargs):
         """Handles an event in a NodeSpace."""
-        return super()._on_nodespaceevent(event, src, **kwargs)
+        return super().on_nodespaceevent(event, src, **kwargs)
 
     def stop(self):
         """Stops the SocketWorker."""

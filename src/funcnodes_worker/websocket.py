@@ -416,7 +416,7 @@ class WSWorker(RemoteWorker):
         """
         return super()._on_nodespaceerror(error, src)
 
-    def _on_nodespaceevent(self, event: str, src: NodeSpace, **kwargs):
+    def on_nodespaceevent(self, event: str, src: NodeSpace, **kwargs):
         """
         Handles an event that occurred in a NodeSpace.
 

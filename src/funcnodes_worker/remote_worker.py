@@ -51,7 +51,7 @@ class RemoteWorker(Worker):
     async def sendmessage(self, msg: str, **kwargs):
         """send a message to the frontend"""
 
-    def _on_nodespaceevent(self, event, src: NodeSpace, **kwargs):
+    def on_nodespaceevent(self, event, src: NodeSpace, **kwargs):
         if event in {
             "before_set_value",
             "before_request_trigger",
