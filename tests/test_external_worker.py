@@ -67,6 +67,9 @@ class _TestWorker(RemoteWorker):
     async def sendmessage(self, *args, **kwargs):
         return MagicMock()
 
+    async def send_bytes(self, *args, **kwargs):
+        return MagicMock()
+
 
 class TestExternalWorker(IsolatedAsyncioTestCase):
     def test_external_worker_missing_loop(self):
@@ -210,8 +213,8 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
             "node_id": nodeid,
             "node_name": "Test",
             "io": {
-                "a": {"is_input": True, "value": fn.NoValue},
-                "out": {"is_input": False, "value": fn.NoValue},
+                "a": {"is_input": True, "value": fn.NoValue, "emit_value_set": True},
+                "out": {"is_input": False, "value": fn.NoValue, "emit_value_set": True},
             },
         }
         self.assertEqual(node.serialize(), expected_node_ser)
