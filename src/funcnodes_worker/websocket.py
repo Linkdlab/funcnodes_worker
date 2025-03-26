@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Union
 from aiohttp import web, WSCloseCode
 from pathlib import Path
 
@@ -48,6 +48,35 @@ MAX_DATA_SIZE = int(
 LARGE_MESSAGE_MEMORY_TIMEOUT = 60  # 1 minute
 
 
+class ClientConnection:
+    def __init__(self, ws: web.WebSocketResponse, logger):
+        self.ws = ws
+        self.queue = asyncio.Queue(maxsize=1000)  # Adjust maxsize as needed
+        self.logger = logger
+        self.send_task = asyncio.create_task(self.process_queue())
+
+    async def process_queue(self):
+        while True:
+            msg: Union[str, bytes] = await self.queue.get()
+            try:
+                # Apply a timeout to avoid waiting indefinitely for a slow client
+                if isinstance(msg, bytes):
+                    await asyncio.wait_for(self.ws.send_bytes(msg), timeout=2)
+                else:
+                    await asyncio.wait_for(self.ws.send_str(msg), timeout=2)
+
+            except Exception as exc:
+                self.logger.exception("Error sending message", exc_info=exc)
+            finally:
+                self.queue.task_done()
+
+    async def enqueue(self, msg: str):
+        try:
+            self.queue.put_nowait(msg)
+        except asyncio.QueueFull:
+            self.logger.warning("Message queue full, dropping message")
+
+
 class WSLoop(CustomLoop):
     """
     Custom loop for WebSocket worker using aiohttp.
@@ -67,7 +96,7 @@ class WSLoop(CustomLoop):
         self._port = port
         self._use_ssl: bool = False
         self._worker = worker
-        self.clients: List[web.WebSocketResponse] = []
+        self.clients: List[ClientConnection] = []
         self.app = web.Application(client_max_size=MAX_DATA_SIZE)
         # A store for large messages that cannot be sent directly over WebSocket
         self.message_store: Dict[str, Tuple[str, float]] = {}
@@ -107,8 +136,9 @@ class WSLoop(CustomLoop):
         Handles a new client connection.
         """
         websocket = web.WebSocketResponse(max_msg_size=MESSAGE_SIZE_BEFORE_REQUEST)
+        client_connection = ClientConnection(websocket, self._worker.logger)
         await websocket.prepare(request)
-        self.clients.append(websocket)
+        self.clients.append(client_connection)
         self._worker.logger.debug("Client connected")
 
         try:
@@ -116,7 +146,7 @@ class WSLoop(CustomLoop):
                 if message.type == web.WSMsgType.TEXT:
                     self._worker.logger.debug(f"Received message: {message.data}")
                     await self._worker.receive_message(
-                        message.data, websocket=websocket
+                        message.data, client_connection=client_connection
                     )
                 elif message.type == web.WSMsgType.ERROR:
                     exc = websocket.exception()
@@ -132,7 +162,7 @@ class WSLoop(CustomLoop):
             FUNCNODES_LOGGER.exception(e)
         finally:
             self._worker.logger.debug("Client disconnected")
-            self.clients.remove(websocket)
+            self.clients.remove(client_connection)
 
         return websocket
 
@@ -310,7 +340,7 @@ class WSLoop(CustomLoop):
 
         # close all clients
         for client in self.clients:
-            await client.close(
+            await client.ws.close(
                 code=WSCloseCode.GOING_AWAY, message="Server shutting down"
             )
 
@@ -363,8 +393,62 @@ class WSWorker(RemoteWorker):
         self.ws_loop = WSLoop(host=host, port=port, worker=self)
         self.loop_manager.add_loop(self.ws_loop)
 
+    async def send_bytes(
+        self,
+        data: bytes,
+        header: dict,
+        client_connection: Optional[ClientConnection] = None,
+    ):
+        """
+        Sends a message to the frontend as bytes.
+
+        Args:
+          data (bytes): The message data to send.
+          header (dict): The message header.
+          client_connection (ClientConnection, optional): The client connection to send the message to. Defaults to None.
+
+        Returns:
+          None.
+
+        Examples:
+          >>> worker.send_bytes(b'bytes', {'header': 'value'})
+        """
+        if not data:
+            return
+        chunkheader = "chunk={number}/{total};msgid=" + str(uuid.uuid4()) + ";"
+
+        headerbytes = (
+            "; ".join([f"{key}={value}" for key, value in header.items()]).encode(
+                "utf-8"
+            )
+            + b"\r\n\r\n"
+        )
+
+        available_datasize = MAX_DATA_SIZE - len(
+            headerbytes + chunkheader.format(number=9999, total=9999).encode("utf-8")
+        )
+        if available_datasize <= 0:
+            raise Exception("Header too large")
+
+        nchunks = (len(data) + available_datasize - 1) // available_datasize
+
+        chunks = [
+            chunkheader.format(number=chunk_index + 1, total=nchunks).encode("utf-8")
+            + headerbytes
+            + data[i : i + available_datasize]
+            for chunk_index, i in enumerate(range(0, len(data), available_datasize))
+        ]
+        if client_connection:
+            for chunk in chunks:
+                await client_connection.enqueue(chunk)
+        else:
+            if self.ws_loop.clients:
+                for client_conn in self.ws_loop.clients:
+                    for chunk in chunks:
+                        await client_conn.enqueue(chunk)
+
     async def sendmessage(
-        self, msg: str, websocket: Optional[web.WebSocketResponse] = None
+        self, msg: str, client_connection: Optional[ClientConnection] = None
     ):
         """send a message to the frontend"""
         if not msg:
@@ -385,20 +469,17 @@ class WSWorker(RemoteWorker):
         else:
             msg_to_send = msg
 
-        if websocket:
+        if client_connection:
             try:
-                await websocket.send_str(msg_to_send)
+                await client_connection.enqueue(msg_to_send)
             except Exception as exc:
                 self.logger.exception(exc)
         else:
             if self.ws_loop.clients:
-                ans = await asyncio.gather(
-                    *[client.send_str(msg_to_send) for client in self.ws_loop.clients],
-                    return_exceptions=True,
-                )
-                for a in ans:
-                    if isinstance(a, Exception):
-                        self.logger.exception(a)
+                for client_conn in (
+                    self.ws_loop.clients
+                ):  # assume these are ClientConnection instances now
+                    await client_conn.enqueue(msg_to_send)
 
     def _on_nodespaceerror(self, error: Exception, src: NodeSpace):
         """
@@ -416,7 +497,7 @@ class WSWorker(RemoteWorker):
         """
         return super()._on_nodespaceerror(error, src)
 
-    def _on_nodespaceevent(self, event: str, src: NodeSpace, **kwargs):
+    def on_nodespaceevent(self, event: str, src: NodeSpace, **kwargs):
         """
         Handles an event that occurred in a NodeSpace.
 
@@ -429,9 +510,9 @@ class WSWorker(RemoteWorker):
           None.
 
         Examples:
-          >>> worker._on_nodespaceevent('event', NodeSpace(), arg1='value1', arg2='value2')
+          >>> worker.on_nodespaceevent('event', NodeSpace(), arg1='value1', arg2='value2')
         """
-        return super()._on_nodespaceevent(event, src, **kwargs)
+        return super().on_nodespaceevent(event, src, **kwargs)
 
     def stop(self):
         """

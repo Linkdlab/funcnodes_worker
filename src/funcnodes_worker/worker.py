@@ -43,6 +43,7 @@ from funcnodes_core import (
     Node,
     NodeJSON,
     JSONEncoder,
+    ByteEncoder,
     JSONDecoder,
     NodeClassNotFoundError,
     FullLibJSON,
@@ -1290,8 +1291,14 @@ class Worker(ABC):
         """send data to the any receiver, in base class it is a no-op"""
         pass
 
-    @abstractmethod
     def _on_nodespaceevent(self, event, **kwargs):
+        """handle nodespace events"""
+        getattr(self, f"on_nodespaceevent_{event}", self.on_nodespaceevent)(
+            event, **kwargs
+        )
+
+    @abstractmethod
+    def on_nodespaceevent(self, event, **kwargs):
         """handle nodespace events"""
 
     def _on_libevent(self, event, **kwargs):
@@ -1845,7 +1852,7 @@ class Worker(ABC):
     def get_io_full_value(self, nid: str, ioid: str):
         node = self.get_node(nid)
         io = node.get_input_or_output(ioid)
-        return JSONEncoder.apply_custom_encoding(io.value, preview=False)
+        return ByteEncoder.encode(io.value, preview=False)
 
     async def install_node(self, nodedata: NodeJSON):
         nideid = nodedata["node_id"]

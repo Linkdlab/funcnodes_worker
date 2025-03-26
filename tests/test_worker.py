@@ -25,7 +25,7 @@ class _TestWorkerClass(Worker):
     ):
         """handle nodespace errors"""
 
-    def _on_nodespaceevent(self, event, **kwargs):
+    def on_nodespaceevent(self, event, **kwargs):
         """handle nodespace events"""
 
 
