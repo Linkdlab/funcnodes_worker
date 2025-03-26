@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Union
 from aiohttp import web, WSCloseCode
 from pathlib import Path
 
@@ -57,10 +57,14 @@ class ClientConnection:
 
     async def process_queue(self):
         while True:
-            msg = await self.queue.get()
+            msg: Union[str, bytes] = await self.queue.get()
             try:
                 # Apply a timeout to avoid waiting indefinitely for a slow client
-                await asyncio.wait_for(self.ws.send_str(msg), timeout=2)
+                if isinstance(msg, bytes):
+                    await asyncio.wait_for(self.ws.send_bytes(msg), timeout=2)
+                else:
+                    await asyncio.wait_for(self.ws.send_str(msg), timeout=2)
+
             except Exception as exc:
                 self.logger.exception("Error sending message", exc_info=exc)
             finally:
@@ -388,6 +392,60 @@ class WSWorker(RemoteWorker):
             port = c.get("port", STARTPORT)
         self.ws_loop = WSLoop(host=host, port=port, worker=self)
         self.loop_manager.add_loop(self.ws_loop)
+
+    async def send_bytes(
+        self,
+        data: bytes,
+        header: dict,
+        client_connection: Optional[ClientConnection] = None,
+    ):
+        """
+        Sends a message to the frontend as bytes.
+
+        Args:
+          data (bytes): The message data to send.
+          header (dict): The message header.
+          client_connection (ClientConnection, optional): The client connection to send the message to. Defaults to None.
+
+        Returns:
+          None.
+
+        Examples:
+          >>> worker.send_bytes(b'bytes', {'header': 'value'})
+        """
+        if not data:
+            return
+        chunkheader = "chunk={number}/{total};msgid=" + str(uuid.uuid4()) + ";"
+
+        headerbytes = (
+            "; ".join([f"{key}={value}" for key, value in header.items()]).encode(
+                "utf-8"
+            )
+            + b"\r\n\r\n"
+        )
+
+        available_datasize = MAX_DATA_SIZE - len(
+            headerbytes + chunkheader.format(number=9999, total=9999).encode("utf-8")
+        )
+        if available_datasize <= 0:
+            raise Exception("Header too large")
+
+        nchunks = (len(data) + available_datasize - 1) // available_datasize
+
+        chunks = [
+            chunkheader.format(number=chunk_index + 1, total=nchunks).encode("utf-8")
+            + headerbytes
+            + data[i : i + available_datasize]
+            for chunk_index, i in enumerate(range(0, len(data), available_datasize))
+        ]
+        if client_connection:
+            for chunk in chunks:
+                await client_connection.enqueue(chunk)
+        else:
+            if self.ws_loop.clients:
+                for client_conn in self.ws_loop.clients:
+                    for chunk in chunks:
+                        await client_conn.enqueue(chunk)
 
     async def sendmessage(
         self, msg: str, client_connection: Optional[ClientConnection] = None

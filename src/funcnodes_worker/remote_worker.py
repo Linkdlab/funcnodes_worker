@@ -1,17 +1,16 @@
 from __future__ import annotations
 from abc import abstractmethod
-from typing import (
-    List,
-    Callable,
-    Tuple,
-    Awaitable,
-)
+from typing import List, Callable, Tuple, Any, Awaitable, Optional, Dict
 import json
 
 from funcnodes_core import (
     NodeSpace,
     JSONEncoder,
     JSONDecoder,
+    Node,
+    NodeIO,
+    ByteEncoder,
+    BytesEncdata,
 )
 import traceback
 from .worker import (
@@ -50,6 +49,48 @@ class RemoteWorker(Worker):
     @abstractmethod
     async def sendmessage(self, msg: str, **kwargs):
         """send a message to the frontend"""
+
+    @abstractmethod
+    async def send_bytes(self, data: bytes, header: dict, **sendkwargs):
+        """send a message to the frontend"""
+
+    async def send_byte_object(
+        self,
+        obj: Any,
+        type: str,
+        preview=False,
+        header: Optional[Dict[str, str]] = None,
+        **sendkwargs,
+    ):
+        if isinstance(obj, BytesEncdata):
+            enc = obj
+        else:
+            enc = ByteEncoder.encode(obj, preview=preview)
+        if header is None:
+            header = {}
+        header["mime"] = enc.mime
+        header["type"] = type
+        if preview:
+            header["preview"] = "1"
+        await self.send_bytes(enc.data, header, **sendkwargs)
+
+    def on_nodespaceevent_after_set_value(
+        self, event, src: NodeSpace, node: str, io: str, result: Any, **kwargs
+    ):
+        _node = src.get_node_by_id(node)
+        if _node is None:
+            return
+        _io = _node.get_input_or_output(io)
+        if _io is None:
+            return
+        self.loop_manager.async_call(
+            self.send_byte_object(
+                result,
+                header=dict(node=_node.uuid, io=_io.uuid),
+                type="io_value",
+                preview=True,
+            )
+        )
 
     def on_nodespaceevent(self, event, src: NodeSpace, **kwargs):
         if event in {
@@ -101,7 +142,7 @@ class RemoteWorker(Worker):
             return
         try:
             if json_msg["type"] == "cmd":
-                await self._handle_cmd_msg(json_msg, **sendkwargs)
+                await self._handle_cmd_msg(json_msg, json_response=True, **sendkwargs)
             if json_msg["type"] == "ping":
                 await self.send('{"type": "pong"}')
         except Exception as e:
@@ -117,12 +158,22 @@ class RemoteWorker(Worker):
 
     recieve_message = receive_message
 
-    async def _handle_cmd_msg(self, json_msg: CmdMessage, **sendkwargs):
+    async def _handle_cmd_msg(
+        self, json_msg: CmdMessage, json_response=False, **sendkwargs
+    ):
         result = await self.run_cmd(json_msg)
-        await self.send(
-            ResultMessage(type="result", result=result, id=json_msg.get("id")),
-            **sendkwargs,
-        )
+        if "as_bytes" in json_msg:
+            json_response = not json_msg["as_bytes"]
+
+        if json_response:
+            await self.send(
+                ResultMessage(type="result", result=result, id=json_msg.get("id")),
+                **sendkwargs,
+            )
+        else:
+            await self.send_byte_object(
+                result, type="result", header=dict(id=json_msg.get("id")), **sendkwargs
+            )
 
     def update_config(self, config: WorkerJson) -> RemoteWorkerJson:
         return super().update_config(config)

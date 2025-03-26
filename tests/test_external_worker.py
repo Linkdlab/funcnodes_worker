@@ -67,6 +67,9 @@ class _TestWorker(RemoteWorker):
     async def sendmessage(self, *args, **kwargs):
         return MagicMock()
 
+    async def send_bytes(self, *args, **kwargs):
+        return MagicMock()
+
 
 class TestExternalWorker(IsolatedAsyncioTestCase):
     def test_external_worker_missing_loop(self):

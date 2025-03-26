@@ -158,14 +158,41 @@ class SocketWorker(RemoteWorker):
         self.socket_loop = SocketLoop(host=host, port=port, worker=self)
         self.loop_manager.add_loop(self.socket_loop)
 
+    async def send_bytes(
+        self, data, header, writer: Optional[asyncio.StreamWriter] = None
+    ):
+        """Sends bytes to the frontend."""
+        headerstring = "; ".join([f"{k}={v}" for k, v in header.items()])
+
+        bytemessage = f"{headerstring}\r\n\r\n".encode() + data + self.DELIMITER
+
+        async def _send(writer):
+            writer.write(bytemessage)
+            await writer.drain()
+
+        if writer:
+            try:
+                await _send(writer)
+            except Exception:
+                pass
+
+        else:
+            clients = self.socket_loop.clients
+
+            if clients:
+                await asyncio.gather(
+                    *[_send(client) for client in clients],
+                    return_exceptions=True,
+                )
+
     async def sendmessage(
         self, msg: str, writer: Optional[asyncio.StreamWriter] = None
     ):
         """Sends a message to the frontend."""
-        bytemessage = msg.encode()
+        bytemessage = msg.encode() + self.DELIMITER
 
         async def _send(writer):
-            writer.write(bytemessage + self.DELIMITER)
+            writer.write(bytemessage)
             await writer.drain()
 
         if writer:

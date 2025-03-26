@@ -43,6 +43,7 @@ from funcnodes_core import (
     Node,
     NodeJSON,
     JSONEncoder,
+    ByteEncoder,
     JSONDecoder,
     NodeClassNotFoundError,
     FullLibJSON,
@@ -1851,7 +1852,7 @@ class Worker(ABC):
     def get_io_full_value(self, nid: str, ioid: str):
         node = self.get_node(nid)
         io = node.get_input_or_output(ioid)
-        return JSONEncoder.apply_custom_encoding(io.value, preview=False)
+        return ByteEncoder.encode(io.value, preview=False)
 
     async def install_node(self, nodedata: NodeJSON):
         nideid = nodedata["node_id"]
