@@ -420,7 +420,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes-core"
-version = "0.3.50"
+version = "0.3.51"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill" },
@@ -429,9 +429,9 @@ dependencies = [
     { name = "setuptools" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3a/b4/d85fd3fde8fa81f7c4f5ea1f4a3e98c5b5d10b2fdc5fbac68b84e055c799/funcnodes_core-0.3.50.tar.gz", hash = "sha256:09bd31955bb78c1cddb2a56b41a3aa704e96b464d54d0518ef49bce27d206a60", size = 91495 }
+sdist = { url = "https://files.pythonhosted.org/packages/b5/54/09eeca547d6bf7bdca8918bf92e3d68cf89464e4c8bc6e04aeeff993b30b/funcnodes_core-0.3.51.tar.gz", hash = "sha256:2c1a5272f3b5a9738b77c88c48eeea5eff8f93c12f12428fdd9659493be3771b", size = 91652 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/0d/5dc63b0e1bebdcaad8690e2d2106e4bdc0624a14633fde5ee5467250e77e/funcnodes_core-0.3.50-py3-none-any.whl", hash = "sha256:cb36b2bfd942f993d57f27162c922cf0e8fe05d3f18f35bbc613e9314db2c2df", size = 82661 },
+    { url = "https://files.pythonhosted.org/packages/ff/e9/5076323ee2cef268e404947003868e685f76e8510b7780388a75f25737f8/funcnodes_core-0.3.51-py3-none-any.whl", hash = "sha256:22144ce59a33cd8f59cbf368b621413c9ba15133af902a782f3e3346dca02ae7", size = 82818 },
 ]
 
 [[package]]
@@ -508,7 +508,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'http'" },
     { name = "aiohttp-cors", marker = "extra == 'http'" },
     { name = "asynctoolkit", specifier = ">=0.1.1" },
-    { name = "funcnodes-core", specifier = ">=0.3.50" },
+    { name = "funcnodes-core", specifier = ">=0.3.51" },
     { name = "funcnodes-worker", extras = ["venv", "http", "subprocess-monitor"], marker = "extra == 'all'" },
     { name = "pip", specifier = ">=25.0.1" },
     { name = "requests", marker = "extra == 'http'" },
