@@ -48,6 +48,9 @@ from funcnodes_core import (
     NodeClassNotFoundError,
     FullLibJSON,
 )
+from funcnodes_core.io import (
+    ValueOptions,
+)
 from funcnodes_core.utils import saving
 from funcnodes_core.lib import find_shelf, ShelfDict
 from exposedfunctionality import exposed_method, get_exposed_methods
@@ -1818,6 +1821,13 @@ class Worker(ABC):
             node.set_property("frontend:pos", data["pos"])
         if "size" in data and data["size"]:
             node.set_property("frontend:size", data["size"])
+
+    @exposed_method()
+    def update_io_value_options(self, nid: str, ioid: str, options: ValueOptions):
+        node = self.get_node(nid)
+        io = node.get_input_or_output(ioid)
+        io.update_value_options(**options)
+        return io
 
     @exposed_method()
     def set_io_value(self, nid: str, ioid: str, value: Any, set_default: bool = False):
