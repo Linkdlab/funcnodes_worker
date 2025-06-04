@@ -209,7 +209,7 @@ class WSLoop(CustomLoop):
         self._worker.logger.debug("Uploading file")
         try:
             reader = await request.multipart()
-            files_uploaded = []
+            files_uploaded: List[Path] = []
 
             while True:
                 # Process each field in the multipart request

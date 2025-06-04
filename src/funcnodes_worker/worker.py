@@ -1783,6 +1783,15 @@ class Worker(ABC):
             node.name = n
             ans["name"] = node.name
 
+        if "description" in data:
+            d = data["description"]
+            node.description = str(d)
+            ans["description"] = node.description
+
+        if "reset_inputs_on_trigger" in data:
+            node.reset_inputs_on_trigger = data["reset_inputs_on_trigger"]
+            ans["reset_inputs_on_trigger"] = node.reset_inputs_on_trigger
+
         return ans
 
     @requests_save
