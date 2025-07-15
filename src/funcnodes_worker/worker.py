@@ -55,6 +55,7 @@ from funcnodes_core.utils import saving
 from funcnodes_core.lib import find_shelf, ShelfDict
 from exposedfunctionality import exposed_method, get_exposed_methods
 from typing_extensions import deprecated
+from funcnodes_core.grouping_logic import NodeGroup
 
 import threading
 from weakref import WeakSet
@@ -2077,6 +2078,41 @@ class Worker(ABC):
             result = func(**kwargs)
         return result
 
+    @exposed_method()
+    def group_nodes(self, node_ids: List[str], group_ids: List[str]):
+        """
+        Groups the given node IDs into a new group using the hierarchical grouping logic.
+        Returns the updated group mapping.
+        """
+        self.nodespace.groups.group_together(node_ids, group_ids)
+  
+        return self.nodespace.groups.get_all_groups()
+
+    @exposed_method()
+    def get_groups(self):
+        return self.nodespace.groups.serialize()
+    
+    @requests_save
+    @exposed_method()
+    def update_group(self, gid: str, data: NodeGroup):
+        try:
+           group = self.nodespace.groups.get_group(gid)
+        except Exception:
+            return {"error": f"Group with id {gid} not found"}
+        if not group:
+            raise ValueError(f"Group with id {gid} not found")
+        ans = {}
+
+        if "position" in data:
+            group["position"]=[float(data["position"][0]), float(data["position"][1])]
+            ans["position"] = group["position"]
+
+        return ans
+    
+    @exposed_method()
+    def remove_group(self, gid: str):
+        self.nodespace.groups.remove_group(gid)
+        return True
 
 class TriggerNode(TypedDict):
     id: str
