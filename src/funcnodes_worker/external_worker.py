@@ -53,6 +53,7 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
         return res
 
     async def stop(self):
+        self._logger.debug("stopping external worker %s", self.uuid)
         self.emit("stopping")
         self.cleanup()
         await super().stop()
