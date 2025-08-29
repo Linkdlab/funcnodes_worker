@@ -53,6 +53,9 @@ class CustomLoop(ABC):
         self.manager = None
         await asyncio.sleep(min(self._delay, MIN_DEF) * 1.25)
         self._stopped = True
+        # in case parent class has a cleanup method
+        if hasattr(super(), "stop"):
+            super().stop()
 
     @property
     def running(self):
