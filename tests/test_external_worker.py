@@ -41,9 +41,10 @@ class ExternalWorker_Test(FuncNodesExternalWorker):
     pass
 
 
-class RaiseErrorLogger:
+class RaiseErrorLogger(logging.Logger):
     def exception(self, e: Exception):
         raise e
+
 
 
 class TimerLoop(CustomLoop):
@@ -93,10 +94,11 @@ class TestExternalWorker(IsolatedAsyncioTestCase):
             NODECLASSID = "testexternalworker"
 
             def loop(self):
-                self.stop()
+                pass
 
         worker = ExternalWorker1(workerid="test")
-        worker._logger = RaiseErrorLogger()
+        worker._logger = RaiseErrorLogger("raiserror")
+        await asyncio.sleep(0.5)
 
         with self.assertRaises(TypeError) as e:
             await worker.continuous_run()
@@ -114,7 +116,7 @@ class TestExternalWorker(IsolatedAsyncioTestCase):
 
         self.assertEqual(ExternalWorker1.running_instances(), [])
         worker = ExternalWorker1(workerid="test")
-        worker._logger = RaiseErrorLogger()
+        worker._logger = RaiseErrorLogger("raiserror")
         await worker.continuous_run()
 
     async def test_external_worker_serialization(self):
@@ -140,6 +142,15 @@ class TestExternalWorker(IsolatedAsyncioTestCase):
             },
         )
 
+class ExternalWorkerSelfStop(FuncNodesExternalWorker):
+    NODECLASSID = "testexternalworker_ExternalWorkerSelfStop"
+
+    async def loop(self):
+        print("loopstart")
+        await asyncio.sleep(1)
+        print("Stopping")
+        await self.stop()
+        print("loopend")
 
 class ExternalWorker1(FuncNodesExternalWorker):
     NODECLASSID = "testexternalworker_ExternalWorker1"
@@ -149,11 +160,8 @@ class ExternalWorker1(FuncNodesExternalWorker):
         self.triggercount = 0
 
     async def loop(self):
-        print("loopstart")
-        await asyncio.sleep(1)
-        print("Stopping")
-        await self.stop()
-        print("loopend")
+        pass
+
 
     @instance_nodefunction()
     def test(self, a: int) -> int:
@@ -225,6 +233,7 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
             t = time.time()
             self.assertLessEqual(t - self.retmoteworker.timerloop.last_run, 0.25)
 
+
     async def test_external_worker_run(self):
         def get_ws_nodes():
             nodes = []
@@ -284,6 +293,7 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
             "testexternalworker_ExternalWorker1.test_external_worker_run.get_count",
         )
 
+        self.assertIn("out", node_getcount.outputs,node_getcount.outputs.keys())
         self.assertEqual(node_getcount.outputs["out"].value, fn.NoValue)
         self.assertEqual(w.triggercount, 0)
 
@@ -303,6 +313,7 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
         fn.FUNCNODES_LOGGER.debug("triggering node_getcount 2")
         await node_getcount
 
+        self.assertIn("out", node_getcount.outputs,node_getcount.outputs.keys())
         self.assertEqual(node_getcount.outputs["out"].value, 1)
 
         self.assertEqual(
@@ -315,10 +326,10 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
             nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"],
             True,
         )
-
+        await asyncio.sleep(0.1)
         print("waiting")
         t = time.time()
-        while w.running and time.time() - t < 10:
+        while (nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"]) and time.time() - t < 10:
             await asyncio.sleep(0.1)
         t = time.time()
         while not w.stopped and time.time() - t < 10:
@@ -351,7 +362,7 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
                                 "testexternalworker_ExternalWorker1"
                             ]["test_external_worker_run"]
                         ],
-                        max_depth=15,
+                        max_depth=10,
                         filename="backrefs_before.dot",
                         highlight=lambda x: isinstance(x, ExternalWorker1),
                         shortnames=False,
