@@ -254,6 +254,7 @@ class LocalWorkerLookupLoop(CustomLoop):
         self, src: FuncNodesExternalWorker, **kwargs
     ):
         try:
+            self._client.logger.debug(f"Worker stopping callback for {src.NODECLASSID}.{src.uuid}")
             asyncio.get_event_loop().create_task(
                 self.stop_local_worker_by_id(src.NODECLASSID, src.uuid)
             )
@@ -304,6 +305,9 @@ class LocalWorkerLookupLoop(CustomLoop):
                 self._client.nodespace.lib.remove_shelf_path(
                     [EXTERNALWORKERLIB, worker_instance.uuid]
                 )
+
+                # Remove the event listener BEFORE calling stop to prevent circular reference
+                worker_instance.off("stopping", self._worker_instance_stopping_callback)
 
                 timeout_duration = 5
                 self._client.logger.info(
