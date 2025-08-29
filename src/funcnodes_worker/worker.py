@@ -298,6 +298,8 @@ class LocalWorkerLookupLoop(CustomLoop):
                 worker_instance = FuncNodesExternalWorker.RUNNING_WORKERS[worker_id][
                     instance_id
                 ]
+
+                self._client.logger.debug(f"stopped worker by id {worker_id} instance {instance_id}")
                 self._client.nodespace.lib.remove_nodeclasses(
                     worker_instance.get_all_nodeclasses()
                 )
@@ -308,7 +310,7 @@ class LocalWorkerLookupLoop(CustomLoop):
 
                 # Remove the event listener BEFORE calling stop to prevent circular reference
                 worker_instance.off("stopping", self._worker_instance_stopping_callback)
-
+                worker_instance.cleanup()
                 timeout_duration = 5
                 self._client.logger.info(
                     f"Stopping worker {worker_id} instance {instance_id}"
