@@ -55,6 +55,7 @@ from funcnodes_core.utils import saving
 from funcnodes_core.lib import find_shelf, ShelfDict
 from exposedfunctionality import exposed_method, get_exposed_methods
 from typing_extensions import deprecated
+from funcnodes_core.grouping_logic import NodeGroup
 
 import threading
 from weakref import WeakSet
@@ -253,6 +254,7 @@ class LocalWorkerLookupLoop(CustomLoop):
         self, src: FuncNodesExternalWorker, **kwargs
     ):
         try:
+            self._client.logger.debug(f"Worker stopping callback for {src.NODECLASSID}.{src.uuid}")
             asyncio.get_event_loop().create_task(
                 self.stop_local_worker_by_id(src.NODECLASSID, src.uuid)
             )
@@ -296,6 +298,8 @@ class LocalWorkerLookupLoop(CustomLoop):
                 worker_instance = FuncNodesExternalWorker.RUNNING_WORKERS[worker_id][
                     instance_id
                 ]
+
+                self._client.logger.debug(f"stopped worker by id {worker_id} instance {instance_id}")
                 self._client.nodespace.lib.remove_nodeclasses(
                     worker_instance.get_all_nodeclasses()
                 )
@@ -304,6 +308,9 @@ class LocalWorkerLookupLoop(CustomLoop):
                     [EXTERNALWORKERLIB, worker_instance.uuid]
                 )
 
+                # Remove the event listener BEFORE calling stop to prevent circular reference
+                worker_instance.off("stopping", self._worker_instance_stopping_callback)
+                worker_instance.cleanup()
                 timeout_duration = 5
                 self._client.logger.info(
                     f"Stopping worker {worker_id} instance {instance_id}"
@@ -2077,6 +2084,41 @@ class Worker(ABC):
             result = func(**kwargs)
         return result
 
+    @exposed_method()
+    def group_nodes(self, node_ids: List[str], group_ids: List[str]):
+        """
+        Groups the given node IDs into a new group using the hierarchical grouping logic.
+        Returns the updated group mapping.
+        """
+        self.nodespace.groups.group_together(node_ids, group_ids)
+  
+        return self.nodespace.groups.get_all_groups()
+
+    @exposed_method()
+    def get_groups(self):
+        return self.nodespace.groups.serialize()
+    
+    @requests_save
+    @exposed_method()
+    def update_group(self, gid: str, data: NodeGroup):
+        try:
+           group = self.nodespace.groups.get_group(gid)
+        except Exception:
+            return {"error": f"Group with id {gid} not found"}
+        if not group:
+            raise ValueError(f"Group with id {gid} not found")
+        ans = {}
+
+        if "position" in data:
+            group["position"]=[float(data["position"][0]), float(data["position"][1])]
+            ans["position"] = group["position"]
+
+        return ans
+    
+    @exposed_method()
+    def remove_group(self, gid: str):
+        self.nodespace.groups.remove_group(gid)
+        return True
 
 class TriggerNode(TypedDict):
     id: str
