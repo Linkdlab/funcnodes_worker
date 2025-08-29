@@ -1,6 +1,6 @@
 [project]
 name = "funcnodes-worker"
-version = "0.3.2"
+version = "1.0.0a0"
 description = "Worker package for FuncNodes"
 readme = "README.md"
 authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
@@ -8,7 +8,7 @@ authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
 requires-python = ">=3.11"
 dependencies = [
  "asynctoolkit>=0.1.1",
- "funcnodes-core>=0.3.54",
+ "funcnodes-core>=1.0.0a0",
  "pip>=25.0.1",
 ]
 
@@ -21,11 +21,12 @@ dev = [
     "snakeviz>=2.2.2",
     "vulture>=2.14",
     "funcnodes-worker[all]",
-    "funcnodes>=0.5.35",
+    "funcnodes>=1.0.0a1",
+    "objgraph>=3.6.2",
 ]
 
 [project.optional-dependencies]
-    subprocess-monitor = ["subprocess-monitor>=0.2.0"]
+    subprocess-monitor = ["subprocess-monitor>=0.3.0"]
     http = ["aiohttp","requests","aiohttp_cors"]	
     venv = ["venvmngr>=0.1.14"]
     all = ["funcnodes-worker[venv,http,subprocess-monitor]"]
@@ -43,14 +44,11 @@ tracker  = "https://github.com/Linkdlab/funcnodes_worker/issues"
 download = "https://pypi.org/project/funcnodes_worker/#files"
 
 [build-system]
-requires = ["setuptools>=42"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools.package-dir]
-"" = "src"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/funcnodes_worker"]
 
 [tool.vulture]
 min_confidence = 80
