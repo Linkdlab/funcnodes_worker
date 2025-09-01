@@ -790,7 +790,7 @@ class Worker(ABC):
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
-                    await self.add_package_dependency(name, dep, save=False, sync=False, reload_base=False)
+                    await self.add_package_dependency(name, dep, save=False, sync=False, do_reload_base=False)
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -1393,7 +1393,7 @@ class Worker(ABC):
         save: bool = True,
         version: Optional[str] = None,
         sync: bool = True,
-        reload_base: bool = True,
+        do_reload_base: bool = True,
     ):
         if version == "latest" or not version:
             version_spec = None
@@ -1410,7 +1410,7 @@ class Worker(ABC):
             progress=0.0,
             blocking=True,
         )
-        if reload_base:
+        if do_reload_base:
             await reload_base(with_repos=False)
 
         try:
