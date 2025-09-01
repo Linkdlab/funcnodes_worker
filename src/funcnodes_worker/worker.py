@@ -254,7 +254,9 @@ class LocalWorkerLookupLoop(CustomLoop):
         self, src: FuncNodesExternalWorker, **kwargs
     ):
         try:
-            self._client.logger.debug(f"Worker stopping callback for {src.NODECLASSID}.{src.uuid}")
+            self._client.logger.debug(
+                f"Worker stopping callback for {src.NODECLASSID}.{src.uuid}"
+            )
             asyncio.get_event_loop().create_task(
                 self.stop_local_worker_by_id(src.NODECLASSID, src.uuid)
             )
@@ -299,7 +301,9 @@ class LocalWorkerLookupLoop(CustomLoop):
                     instance_id
                 ]
 
-                self._client.logger.debug(f"stopped worker by id {worker_id} instance {instance_id}")
+                self._client.logger.debug(
+                    f"stopped worker by id {worker_id} instance {instance_id}"
+                )
                 self._client.nodespace.lib.remove_nodeclasses(
                     worker_instance.get_all_nodeclasses()
                 )
@@ -594,7 +598,7 @@ class Worker(ABC):
     @property
     def _process_file(self) -> Path:
         return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.p"
-    
+
     @property
     def _runstate_file(self) -> Path:
         return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.runstate"
@@ -790,7 +794,9 @@ class Worker(ABC):
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
-                    await self.add_package_dependency(name, dep, save=False, sync=False, do_reload_base=False)
+                    await self.add_package_dependency(
+                        name, dep, save=False, sync=False, do_reload_base=False
+                    )
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -1963,14 +1969,14 @@ class Worker(ABC):
     @property
     def runstate(self) -> runstateLiteral:
         return self._runstate
-    
+
     @runstate.setter
     def runstate(self, value: runsstatePackage):
         details = None
         if isinstance(value, tuple):
             details = value[1]
             value = value[0]
-        value=str(value).strip().lower()
+        value = str(value).strip().lower()
         pf = self._runstate_file
         if not pf.parent.exists():
             pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
@@ -1979,8 +1985,6 @@ class Worker(ABC):
             f.write(value)
             if details:
                 f.write(f"\n{details}")
-
-
 
     @exposed_method()
     def get_runstate(self) -> runstateLiteral:
@@ -2121,18 +2125,18 @@ class Worker(ABC):
         Returns the updated group mapping.
         """
         self.nodespace.groups.group_together(node_ids, group_ids)
-  
+
         return self.nodespace.groups.get_all_groups()
 
     @exposed_method()
     def get_groups(self):
         return self.nodespace.groups.serialize()
-    
+
     @requests_save
     @exposed_method()
     def update_group(self, gid: str, data: NodeGroup):
         try:
-           group = self.nodespace.groups.get_group(gid)
+            group = self.nodespace.groups.get_group(gid)
         except Exception:
             return {"error": f"Group with id {gid} not found"}
         if not group:
@@ -2140,15 +2144,16 @@ class Worker(ABC):
         ans = {}
 
         if "position" in data:
-            group["position"]=[float(data["position"][0]), float(data["position"][1])]
+            group["position"] = [float(data["position"][0]), float(data["position"][1])]
             ans["position"] = group["position"]
 
         return ans
-    
+
     @exposed_method()
     def remove_group(self, gid: str):
         self.nodespace.groups.remove_group(gid)
         return True
+
 
 class TriggerNode(TypedDict):
     id: str
