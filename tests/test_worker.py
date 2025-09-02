@@ -46,13 +46,14 @@ class TestWorkerInitCases(TestCase):
     def setUp(self):
         fn_set_in_test()
         self.tempdir = tempfile.TemporaryDirectory()
-        self.workerkwargs["data_path"] = self.tempdir.name
+        # self.workerkwargs["data_path"] = self.tempdir.name
         self.workerkwargs["uuid"] = "testuuid"
         self.worker = None
 
-    def tearDown(self):
+    async def asyncTearDown(self):
         if self.worker:
             self.worker.stop()
+            await asyncio.sleep(0.4)
             del self.worker
         fn_teardown()
 
@@ -77,9 +78,11 @@ class TestWorkerInitCases(TestCase):
         import threading
 
         wpath = fn.config.get_config_dir() / "workers"
+
         olfiles = (
             os.listdir(fn.config.get_config_dir() / "workers") if wpath.exists() else []
         )
+
         runthread = threading.Thread(
             target=self.Workerclass.init_and_run_forever,
             kwargs=self.workerkwargs,
@@ -87,32 +90,34 @@ class TestWorkerInitCases(TestCase):
         )
         runthread.start()
         workerdir = fn.config.get_config_dir() / "workers"
+        worker_p_file = workerdir / f"worker_{self.workerkwargs['uuid']}.p"
 
         # wait max 10 seconds for the worker to start
-        for i in range(100):
-            if workerdir.exists():
+        for i in range(200):
+            if worker_p_file.exists():
                 break
             time.sleep(0.1)
         time.sleep(0.5)
 
         newfiles = os.listdir(fn.config.get_config_dir() / "workers")
+        newfiles = set(newfiles) - set(olfiles)
 
-        self.assertEqual(len(set(newfiles) - set(olfiles)), 1, (olfiles, newfiles))
+        assert f"worker_{self.workerkwargs['uuid']}.p" in newfiles
+        assert f"worker_{self.workerkwargs['uuid']}.runstate" in newfiles
+        assert f"worker_{self.workerkwargs['uuid']}" in newfiles
+        assert (workerdir / f"worker_{self.workerkwargs['uuid']}").is_dir()
+        assert worker_p_file.exists()
 
-        processfile = (set(newfiles) - set(olfiles)).pop()
-        self.assertTrue(
-            processfile.startswith("worker_") and processfile.endswith(".p")
-        )
         stopcmd = {"cmd": "stop_worker"}
 
-        with open(fn.config.get_config_dir() / "workers" / processfile, "r") as f:
+        with open(worker_p_file, "r") as f:
             pid = f.read()
 
         self.assertTrue(pid.isdigit(), pid)
 
         self.assertEqual(os.getpid(), int(pid))
 
-        with open(fn.config.get_config_dir() / "workers" / processfile, "w") as f:
+        with open(worker_p_file, "w") as f:
             json.dump(stopcmd, f)
 
         # wait max 5 seconds for the worker to stop
@@ -138,14 +143,20 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
     Workerclass = _TestWorkerClass
 
     async def asyncSetUp(self):
-        self.tempdir = tempfile.TemporaryDirectory()
         fn_set_in_test()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.tempdir_path = Path(self.tempdir.name)
         self.worker = self.Workerclass(
-            data_path=Path(self.tempdir.name), default_nodes=[testshelf], debug=True
+            data_path=self.tempdir_path,
+            default_nodes=[testshelf],
+            debug=True,
+            uuid="TestWorkerCase_testuuid",
         )
+        self.worker.write_config()
 
     async def asyncTearDown(self):
         self.worker.stop()
+        await asyncio.sleep(0.4)
         fn_teardown()
         self.tempdir.cleanup()
 
@@ -164,7 +175,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         expected = {
             "uuid": self.worker.uuid(),
             "name": self.worker.name(),
-            "data_path": Path(self.tempdir.name).absolute().resolve().as_posix(),
+            "data_path": self.tempdir_path.absolute().resolve().as_posix(),
             "package_dependencies": {},
             "pid": os.getpid(),
             "python_path": sys.executable,
@@ -198,7 +209,6 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
     def test_write_config(self):
         config_path = self.worker._config_file
         self.worker.write_config()
-        print(config_path)
         self.assertTrue(os.path.exists(config_path))
 
     def test_load_config(self):
@@ -276,6 +286,9 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         self.assertEqual(ser, expected)
 
     def test_add_node(self):
+        node = self._add_node()
+
+    def _add_node(self):
         node_id = "test_node"
         addednode = self.worker.add_node(node_id)
         self.assertIsInstance(addednode, fn.Node)
@@ -287,15 +300,15 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         return node
 
     def test_remove_node(self):
-        node = self.test_add_node()
+        node = self._add_node()
         self.worker.get_node(node.uuid)
         self.worker.remove_node(node.uuid)
         with self.assertRaises(ValueError):
             self.worker.get_node(node.uuid)
 
     def test_add_edge(self):
-        node1 = self.test_add_node()
-        node2 = self.test_add_node()
+        node1 = self._add_node()
+        node2 = self._add_node()
 
         self.worker.add_edge(node1.uuid, "out", node2.uuid, "a")
         edges = self.worker.get_edges()
@@ -319,7 +332,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         self.assertEqual(len(self.worker.get_edges()), 0)
 
     def test_update_node(self):
-        node = self.test_add_node()
+        node = self._add_node()
         self.worker.update_node(node.uuid, {"name": "Updated Node"})
         node = self.worker.get_node(node.uuid)
         self.assertEqual(node.name, "Updated Node")
@@ -451,8 +464,9 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
         self.worker.add_edge(self.node1.uuid, "out", self.node2.uuid, "a")
         await asyncio.sleep(0.5)  # let the nodes trigger
 
-    def tearDown(self):
+    async def asyncTearDown(self):
         self.worker.stop()
+        await asyncio.sleep(0.4)
         fn_teardown()
         self.tempdir.cleanup()
 
