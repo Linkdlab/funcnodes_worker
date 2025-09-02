@@ -1976,7 +1976,7 @@ class Worker(ABC):
         if isinstance(value, tuple):
             details = value[1]
             value = value[0]
-        value = str(value).strip().lower()
+        value = str(value).strip()
         pf = self._runstate_file
         if not pf.parent.exists():
             pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
