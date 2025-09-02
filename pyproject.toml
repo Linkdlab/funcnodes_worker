@@ -8,7 +8,7 @@ authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
 requires-python = ">=3.11"
 dependencies = [
  "asynctoolkit>=0.1.1",
- "funcnodes-core>=1.0.0",
+ "funcnodes-core>=1.0.1",
  "pip>=25.0.1",
 ]
 
@@ -21,7 +21,7 @@ dev = [
     "snakeviz>=2.2.2",
     "vulture>=2.14",
     "funcnodes-worker[all]",
-    "funcnodes>=1.0.0a1",
+    "funcnodes>=1.0.0",
     "objgraph>=3.6.2",
 ]
 
