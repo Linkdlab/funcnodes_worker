@@ -254,7 +254,9 @@ class LocalWorkerLookupLoop(CustomLoop):
         self, src: FuncNodesExternalWorker, **kwargs
     ):
         try:
-            self._client.logger.debug(f"Worker stopping callback for {src.NODECLASSID}.{src.uuid}")
+            self._client.logger.debug(
+                f"Worker stopping callback for {src.NODECLASSID}.{src.uuid}"
+            )
             asyncio.get_event_loop().create_task(
                 self.stop_local_worker_by_id(src.NODECLASSID, src.uuid)
             )
@@ -299,7 +301,9 @@ class LocalWorkerLookupLoop(CustomLoop):
                     instance_id
                 ]
 
-                self._client.logger.debug(f"stopped worker by id {worker_id} instance {instance_id}")
+                self._client.logger.debug(
+                    f"stopped worker by id {worker_id} instance {instance_id}"
+                )
                 self._client.nodespace.lib.remove_nodeclasses(
                     worker_instance.get_all_nodeclasses()
                 )
@@ -491,7 +495,9 @@ class WorkerJson(TypedDict):
     update_on_startup: PossibleUpdates
 
 
-runsstateT = Literal["undefined", "starting", "running", "stopping", "stopped"]
+runstateLiteral = Literal["undefined", "starting", "running", "stopping", "stopped"]
+runsStateDetails = Tuple[runstateLiteral, str]
+runsstatePackage = Union[runstateLiteral, runsStateDetails]
 
 
 class Worker(ABC):
@@ -515,7 +521,7 @@ class Worker(ABC):
             default_nodes = []
 
         self._debug = debug
-        self._runstate: runsstateT = "undefined"
+        self._runstate: runstateLiteral = "undefined"
         self._package_dependencies: Dict[str, PackageDependency] = {}
         # self._shelves_dependencies: Dict[str, ShelfDict] = {}
         self._worker_dependencies: Dict[str, WorkerDict] = {}
@@ -592,6 +598,10 @@ class Worker(ABC):
     @property
     def _process_file(self) -> Path:
         return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.p"
+
+    @property
+    def _runstate_file(self) -> Path:
+        return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.runstate"
 
     @property
     def _config_file(self) -> Path:
@@ -784,7 +794,9 @@ class Worker(ABC):
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
-                    await self.add_package_dependency(name, dep, save=False, sync=False)
+                    await self.add_package_dependency(
+                        name, dep, save=False, sync=False, do_reload_base=False
+                    )
                 except Exception as e:
                     self.logger.exception(e)
 
@@ -1387,6 +1399,7 @@ class Worker(ABC):
         save: bool = True,
         version: Optional[str] = None,
         sync: bool = True,
+        do_reload_base: bool = True,
     ):
         if version == "latest" or not version:
             version_spec = None
@@ -1403,7 +1416,8 @@ class Worker(ABC):
             progress=0.0,
             blocking=True,
         )
-        await reload_base(with_repos=False)
+        if do_reload_base:
+            await reload_base(with_repos=False)
 
         try:
             if name not in AVAILABLE_REPOS:
@@ -1953,11 +1967,27 @@ class Worker(ABC):
             pass
 
     @property
-    def runstate(self) -> runsstateT:
+    def runstate(self) -> runstateLiteral:
         return self._runstate
 
+    @runstate.setter
+    def runstate(self, value: runsstatePackage):
+        details = None
+        if isinstance(value, tuple):
+            details = value[1]
+            value = value[0]
+        value = str(value).strip()
+        pf = self._runstate_file
+        if not pf.parent.exists():
+            pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
+        self._runstate = value
+        with open(pf, "w") as f:
+            f.write(value)
+            if details:
+                f.write(f"\n{details}")
+
     @exposed_method()
-    def get_runstate(self) -> runsstateT:
+    def get_runstate(self) -> runstateLiteral:
         return self.runstate
 
     async def wait_for_running(self, timeout: Optional[float] = None):
@@ -1978,13 +2008,15 @@ class Worker(ABC):
                 await asyncio.sleep(0.1)
 
     async def _prerun(self):
-        self._runstate = "starting"
+        self.runstate = ("starting", "Loading packages")
         await reload_base(with_repos=False)
         self._save_disabled = True
         self.logger.info("Starting worker forever")
         self.loop_manager.reset_loop()
+        self.runstate = ("starting", "Loading config")
         await self.ini_config()
 
+        self.runstate = ("starting", "Loading nodespace")
         self.initialize_nodespace()
 
         self._save_disabled = False
@@ -2006,7 +2038,7 @@ class Worker(ABC):
         await self._prerun()
         await self.worker_event("starting")
         try:
-            self._runstate = "running"
+            self.runstate = "running"
             await self.loop_manager.run_forever_async()
         finally:
             self.stop()
@@ -2037,7 +2069,7 @@ class Worker(ABC):
     def stop(self):
         if self.is_running():
             self.loop_manager.async_call(self.worker_event("stopping"))
-        self._runstate = "stopped"
+        self.runstate = "stopped"
         self.save()
         self._save_disabled = True
 
@@ -2050,12 +2082,14 @@ class Worker(ABC):
 
         if self._process_file.exists():
             os.remove(self._process_file)
+        if self._runstate_file.exists():
+            os.remove(self._runstate_file)
 
     def is_running(self):
         return self.loop_manager.running
 
     def cleanup(self):
-        self._runstate = "removed"
+        self.runstate = "removed"
         if self.is_running():  # pragma: no cover
             self.stop()
         self.loop_manager.stop()
@@ -2091,18 +2125,18 @@ class Worker(ABC):
         Returns the updated group mapping.
         """
         self.nodespace.groups.group_together(node_ids, group_ids)
-  
+
         return self.nodespace.groups.get_all_groups()
 
     @exposed_method()
     def get_groups(self):
         return self.nodespace.groups.serialize()
-    
+
     @requests_save
     @exposed_method()
     def update_group(self, gid: str, data: NodeGroup):
         try:
-           group = self.nodespace.groups.get_group(gid)
+            group = self.nodespace.groups.get_group(gid)
         except Exception:
             return {"error": f"Group with id {gid} not found"}
         if not group:
@@ -2110,15 +2144,16 @@ class Worker(ABC):
         ans = {}
 
         if "position" in data:
-            group["position"]=[float(data["position"][0]), float(data["position"][1])]
+            group["position"] = [float(data["position"][0]), float(data["position"][1])]
             ans["position"] = group["position"]
 
         return ans
-    
+
     @exposed_method()
     def remove_group(self, gid: str):
         self.nodespace.groups.remove_group(gid)
         return True
+
 
 class TriggerNode(TypedDict):
     id: str
