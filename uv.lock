@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "sys_platform != 'emscripten'",
@@ -464,7 +464,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes-worker"
-version = "1.1.0"
+version = "1.1.1a0"
 source = { editable = "." }
 dependencies = [
     { name = "asynctoolkit" },
