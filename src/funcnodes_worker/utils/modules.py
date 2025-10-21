@@ -27,7 +27,8 @@ class AvailableRepo:
       - installed: Flag indicating whether the package is installed.
       - version: Version of the installed package.
       - description: A short description of the package.
-      - entry_point__module, entry_point__shelf, entry_point__external_worker: Optional entry points for different functionalities.
+      - entry_point__module, entry_point__shelf, entry_point__external_worker: Optional entry points for
+            different functionalities.
       - moduledata: An instance of InstalledModule containing module-specific data.
       - last_updated, homepage, source, summary: Additional metadata.
       - releases: A list of available releases/versions.
@@ -73,7 +74,7 @@ def version_string_to_Specifier(version: str) -> Specifier:
     try:
         return Specifier(version)
     except InvalidSpecifier:
-        ## version can be only a single version, not a range, so we need to convert it to a range
+        # version can be only a single version, not a range, so we need to convert it to a range
         return Specifier("==" + version)
 
 

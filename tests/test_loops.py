@@ -7,7 +7,6 @@ from funcnodes_worker.loop import (
     LoopManager,
 )
 from funcnodes_core.testing import (
-    teardown as fn_teardown,
     set_in_test as fn_set_in_test,
 )
 

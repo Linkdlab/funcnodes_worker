@@ -464,13 +464,14 @@ wheels = [
 
 [[package]]
 name = "funcnodes-worker"
-version = "1.0.0"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "asynctoolkit" },
     { name = "funcnodes-core" },
     { name = "packaging" },
     { name = "pip" },
+    { name = "python-slugify" },
 ]
 
 [package.optional-dependencies]
@@ -515,6 +516,7 @@ requires-dist = [
     { name = "funcnodes-worker", extras = ["venv", "http", "subprocess-monitor"], marker = "extra == 'all'" },
     { name = "packaging", specifier = ">=24.2" },
     { name = "pip", specifier = ">=25.0.1" },
+    { name = "python-slugify", specifier = ">=8.0.4" },
     { name = "requests", marker = "extra == 'http'" },
     { name = "subprocess-monitor", marker = "extra == 'subprocess-monitor'", specifier = ">=0.3.0" },
     { name = "venvmngr", marker = "extra == 'venv'", specifier = ">=0.1.15" },
@@ -920,6 +922,18 @@ wheels = [
 ]
 
 [[package]]
+name = "python-slugify"
+version = "8.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "text-unidecode" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/87/c7/5e1547c44e31da50a460df93af11a535ace568ef89d7a811069ead340c4a/python-slugify-8.0.4.tar.gz", hash = "sha256:59202371d1d05b54a9e7720c5e038f928f45daaffe41dd10822f3907b937c856", size = 10921, upload-time = "2024-02-08T18:32:45.488Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/62/02da182e544a51a5c3ccf4b03ab79df279f9c60c5e82d5e8bec7ca26ac11/python_slugify-8.0.4-py2.py3-none-any.whl", hash = "sha256:276540b79961052b66b7d116620b36518847f52d5fd9e3a70164fc8c50faa6b8", size = 10051, upload-time = "2024-02-08T18:32:43.911Z" },
+]
+
+[[package]]
 name = "pyyaml"
 version = "6.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1044,6 +1058,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/47/e1/1034846227a49627f1fc3a74367de16321970f7de72aebcca7660552e1b7/subprocess_monitor-0.3.0.tar.gz", hash = "sha256:5a11eb91777e1f8b2e558076cca79bbed62591824eb7e90a72b4944ebee5584d", size = 97265, upload-time = "2025-07-15T22:23:35.909Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/52/57/979ab56e413c0c1523370cb96e7118cdca9c8a891ac7dd5ad7eeabfb3da0/subprocess_monitor-0.3.0-py3-none-any.whl", hash = "sha256:0b6aae269beabf523d85ee2e1b9c64558c73ea9469eefc7c20b465c29fed7399", size = 19698, upload-time = "2025-07-15T22:23:34.359Z" },
+]
+
+[[package]]
+name = "text-unidecode"
+version = "1.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ab/e2/e9a00f0ccb71718418230718b3d900e71a5d16e701a3dae079a21e9cd8f8/text-unidecode-1.3.tar.gz", hash = "sha256:bad6603bb14d279193107714b288be206cac565dfa49aa5b105294dd5c4aab93", size = 76885, upload-time = "2019-08-30T21:36:45.405Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/a5/c0b6468d3824fe3fde30dbb5e1f687b291608f9473681bbf7dabbf5a87d7/text_unidecode-1.3-py2.py3-none-any.whl", hash = "sha256:1311f10e8b895935241623731c2ba64f4c455287888b18189350b67134a822e8", size = 78154, upload-time = "2019-08-30T21:37:03.543Z" },
 ]
 
 [[package]]

@@ -24,6 +24,7 @@ import importlib.util
 import inspect
 from uuid import uuid4
 import warnings
+from slugify import slugify
 
 try:
     import psutil
@@ -78,7 +79,6 @@ from .utils.modules import (
     install_repo,
     try_import_module,
     install_package,
-    version_to_range,
     version_string_to_Specifier,
 )
 from funcnodes_core.utils.files import write_json_secure
@@ -486,7 +486,6 @@ class WorkerJson(TypedDict):
     name: str | None
     data_path: str
     env_path: Optional[str]
-    python_path: str
     pid: Optional[int]
 
     # shelves_dependencies: Dict[str, ShelfDict]
@@ -554,7 +553,13 @@ class Worker(ABC):
         self.viewdata: ViewState = {
             "renderoptions": fn.config.FUNCNODES_RENDER_OPTIONS,
         }
-        self._uuid = uuid4().hex if not uuid else uuid
+        self._uuid = (
+            (slugify(name)[:16] + "_" + uuid4().hex[:16])
+            if name
+            else uuid4().hex
+            if not uuid
+            else uuid
+        )
         self._name = name or None
         self._data_path: Path = Path(
             data_path
@@ -607,11 +612,11 @@ class Worker(ABC):
     def _config_file(self) -> Path:
         return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.json"
 
-    def _write_process_file(self):
+    def _check_process_file(self, hard: bool = False):
         pf = self._process_file
-        if not pf.parent.exists():
-            pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
         if pf.exists():
+            if hard:
+                raise RuntimeError("Worker already running")
             with open(pf, "r") as f:
                 d = f.read()
             if d != "":
@@ -621,8 +626,19 @@ class Worker(ABC):
                         cmd, int
                     ):  # highly probable that data is an int (pid)
                         self.loop_manager.async_call(self.run_cmd(cmd))
+                    else:
+                        if psutil.pid_exists(cmd) and cmd != os.getpid():
+                            raise RuntimeError("Worker already running")
+                except RuntimeError as e:
+                    raise e
                 except Exception:
                     pass
+
+    def _write_process_file(self):
+        pf = self._process_file
+        if not pf.parent.exists():
+            pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
+        self._check_process_file()
         with open(pf, "w+") as f:
             f.write(str(os.getpid()))
 
@@ -675,7 +691,6 @@ class Worker(ABC):
         env_path = None
 
         worker_dependencies: Dict[str, WorkerDict] = {}
-        python_path = sys.executable
         return self.update_config(
             WorkerJson(
                 type=self.__class__.__name__,
@@ -684,7 +699,6 @@ class Worker(ABC):
                 data_path=str(data_path),
                 env_path=env_path,
                 # shelves_dependencies=self._shelves_dependencies.copy(),
-                python_path=python_path,
                 worker_dependencies=worker_dependencies,
                 package_dependencies=self._package_dependencies.copy(),
                 pid=os.getpid(),
@@ -698,7 +712,6 @@ class Worker(ABC):
         conf["uuid"] = self.uuid()
         conf["name"] = self.name()
         conf["data_path"] = self.data_path
-        conf["python_path"] = sys.executable
         conf["pid"] = os.getpid()
 
         if "update_on_startup" not in conf:
@@ -765,22 +778,14 @@ class Worker(ABC):
     async def ini_config(self):
         """initializes the worker from the config file"""
         self.logger.debug("Init config")
-        if self._process_file.exists():
+        try:
+            self._check_process_file(hard=True)
+        except Exception:
             self.logger.debug("Found process file, wait and try again")
             await asyncio.sleep(
                 1
             )  # wait for at least 1 second to make sure the process file is written
-            if self._process_file.exists():
-                # get the pid from the process file
-                with open(self._process_file, "r") as f:
-                    pid = f.read()
-                if pid != "" and psutil is not None:
-                    try:
-                        pid = int(pid)
-                        if psutil.pid_exists(pid):
-                            raise RuntimeError("Worker already running")
-                    except ValueError:
-                        raise RuntimeError("Worker already running")
+            self._check_process_file()
 
         self._write_process_file()
         c = self.load_or_generate_config()
@@ -1038,6 +1043,9 @@ class Worker(ABC):
     def uuid(self) -> str:
         """returns the uuid of the worker"""
         return self._uuid
+
+    def slug_name(self) -> str:
+        return slugify(self.name())
 
     @exposed_method()
     def name(self) -> str:
@@ -2008,9 +2016,12 @@ class Worker(ABC):
                 await asyncio.sleep(0.1)
 
     async def _prerun(self):
+        self._check_process_file(hard=True)
+        self._write_process_file()
         self.runstate = ("starting", "Loading packages")
         await reload_base(with_repos=False)
         self._save_disabled = True
+        self.logger.debug("Starting worker with sys.executable: %s", sys.executable)
         self.logger.info("Starting worker forever")
         self.loop_manager.reset_loop()
         self.runstate = ("starting", "Loading config")
@@ -2081,9 +2092,9 @@ class Worker(ABC):
                 pass
 
         if self._process_file.exists():
-            os.remove(self._process_file)
+            self._process_file.unlink()
         if self._runstate_file.exists():
-            os.remove(self._runstate_file)
+            self._runstate_file.unlink()
 
     def is_running(self):
         return self.loop_manager.running

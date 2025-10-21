@@ -1,6 +1,6 @@
 [project]
 name = "funcnodes-worker"
-version = "1.0.1"
+version = "1.1.0"
 description = "Worker package for FuncNodes"
 readme = "README.md"
 authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
@@ -11,6 +11,7 @@ dependencies = [
  "funcnodes-core>=1.0.1",
  "packaging>=24.2",
  "pip>=25.0.1",
+ "python-slugify>=8.0.4",
 ]
 
 [dependency-groups]
@@ -28,7 +29,7 @@ dev = [
 
 [project.optional-dependencies]
     subprocess-monitor = ["subprocess-monitor>=0.3.0"]
-    http = ["aiohttp","requests","aiohttp_cors"]	
+    http = ["aiohttp","requests","aiohttp_cors"]
     venv = ["venvmngr>=0.1.15"]
     all = ["funcnodes-worker[venv,http,subprocess-monitor]"]
 

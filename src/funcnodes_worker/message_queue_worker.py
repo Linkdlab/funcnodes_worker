@@ -6,8 +6,6 @@ from funcnodes_worker import CustomLoop
 from .remote_worker import RemoteWorker
 from multiprocessing import Queue
 
-import json
-
 
 class MsgLoop(CustomLoop):
     """ """
