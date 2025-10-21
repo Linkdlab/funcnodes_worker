@@ -386,7 +386,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes"
-version = "1.0.0a1"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "funcnodes-basic" },
@@ -400,9 +400,9 @@ dependencies = [
     { name = "venvmngr", marker = "sys_platform != 'emscripten'" },
     { name = "virtualenv", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/65/1e/a992a75cf334a1186a1eda53a514dd19d50d43b7d935531dab6943504958/funcnodes-1.0.0a1.tar.gz", hash = "sha256:85a84da1a94b9014d22b39d480ce5da85126ddb4c0f1bb43ba7802d6bad66e1f", size = 10528541, upload-time = "2025-08-28T14:27:25.846Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a4/fe/2ec4df46a077111423cbe6caffc1ce30d7bb9849c169dc9100d9ce93725b/funcnodes-1.0.0.tar.gz", hash = "sha256:95f0d5264475eb95ea574db15fffbaded60babd9cc6b19d34842cd411d9ceed0", size = 10539349, upload-time = "2025-08-29T12:38:20.298Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/8f/89ebf042de84114db1332d4b90cb285a3e446aea89c3209bc5bf9c989227/funcnodes-1.0.0a1-py3-none-any.whl", hash = "sha256:5ba1b99f7a340293336848c37090a30c00f9498157c9ad27a86a50a219f42848", size = 38665, upload-time = "2025-08-28T14:27:24.349Z" },
+    { url = "https://files.pythonhosted.org/packages/52/18/43cb65e29501a472a5e257ff02bc0e4bffe4b4b9e01079f0b92f8ae95323/funcnodes-1.0.0-py3-none-any.whl", hash = "sha256:a6ed6725420166fc6e30c10e9bb7aa58bde9fbddefa82fb60f57d196480c419d", size = 38691, upload-time = "2025-08-29T12:38:18.643Z" },
 ]
 
 [[package]]
@@ -420,7 +420,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes-core"
-version = "1.0.0a0"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill" },
@@ -429,9 +429,9 @@ dependencies = [
     { name = "setuptools" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9c/51/e151de14a4023c011b6fa0f0a7ffacba8d3afd7fdedc4b153ac2f6b03486/funcnodes_core-1.0.0a0.tar.gz", hash = "sha256:a59d6a5436e393e44df55ad3a6f416af5be2108254daff6d34ef18d6945bb1b4", size = 101112, upload-time = "2025-08-28T10:28:34.485Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/95/bd171144469aa9ac13eaa607b1f721c26ddf762e747f408ea4a8ff0f86c6/funcnodes_core-1.0.1.tar.gz", hash = "sha256:df3f4f351e71e34d82c189bd2a2597d6ce21e05bea987f01b17582b546d4416b", size = 176410, upload-time = "2025-09-01T12:46:06.231Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/87/ded3987437b4cf050c489d185f06d7fd9cc7d5291310cd10f367aa9a7a14/funcnodes_core-1.0.0a0-py3-none-any.whl", hash = "sha256:1420cea25286db70454e25d0853b442365402e53d92520988abf4d051b3b47b0", size = 89065, upload-time = "2025-08-28T10:28:32.981Z" },
+    { url = "https://files.pythonhosted.org/packages/19/fc/ee82da057c35348e3da3dae9f7ef6667ff739b792c697a80a6ecc4e88be0/funcnodes_core-1.0.1-py3-none-any.whl", hash = "sha256:de28abad9e497fe91e23f78415992cf78ca6e2bde5baa977ac867852f631cff8", size = 88798, upload-time = "2025-09-01T12:46:05.007Z" },
 ]
 
 [[package]]
@@ -464,11 +464,12 @@ wheels = [
 
 [[package]]
 name = "funcnodes-worker"
-version = "1.0.0a0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "asynctoolkit" },
     { name = "funcnodes-core" },
+    { name = "packaging" },
     { name = "pip" },
 ]
 
@@ -510,19 +511,20 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'http'" },
     { name = "aiohttp-cors", marker = "extra == 'http'" },
     { name = "asynctoolkit", specifier = ">=0.1.1" },
-    { name = "funcnodes-core", specifier = ">=1.0.0a0" },
+    { name = "funcnodes-core", specifier = ">=1.0.1" },
     { name = "funcnodes-worker", extras = ["venv", "http", "subprocess-monitor"], marker = "extra == 'all'" },
+    { name = "packaging", specifier = ">=24.2" },
     { name = "pip", specifier = ">=25.0.1" },
     { name = "requests", marker = "extra == 'http'" },
     { name = "subprocess-monitor", marker = "extra == 'subprocess-monitor'", specifier = ">=0.3.0" },
-    { name = "venvmngr", marker = "extra == 'venv'", specifier = ">=0.1.14" },
+    { name = "venvmngr", marker = "extra == 'venv'", specifier = ">=0.1.15" },
 ]
 provides-extras = ["subprocess-monitor", "http", "venv", "all"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "coverage", specifier = ">=7.6.10" },
-    { name = "funcnodes", specifier = ">=1.0.0a1" },
+    { name = "funcnodes", specifier = ">=1.0.0" },
     { name = "funcnodes-worker", extras = ["all"] },
     { name = "objgraph", specifier = ">=3.6.2" },
     { name = "pre-commit", specifier = ">=4.1.0" },
@@ -1191,7 +1193,7 @@ wheels = [
 
 [[package]]
 name = "venvmngr"
-version = "0.1.14"
+version = "0.1.15"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
@@ -1199,9 +1201,9 @@ dependencies = [
     { name = "subprocess-monitor" },
     { name = "uv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/87/1d/811ae8948c35e1d513c29d789f40e4c1c2b0dfc0a87c89e088be01b8cf8c/venvmngr-0.1.14.tar.gz", hash = "sha256:1f7d1e4d14188e0e45df8b52e1aebc4dc8c2c694aa08a8e741f4931afd09d5d2", size = 9251, upload-time = "2025-01-31T11:42:03.29Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/1b/a3d59dddb87007b04f3d8bbc7f12e7b13e7ba03b96b06040050d4b3dcd45/venvmngr-0.1.15.tar.gz", hash = "sha256:1e7b6f9aabb747f01c356a49082315de8ab24b228d2f20be9594c9c17ffaa3aa", size = 94878, upload-time = "2025-09-11T07:32:22.787Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ee/04/7a75503e85b0c1fb81438ac9023d3117f769021642077424ce0f90dda3fe/venvmngr-0.1.14-py3-none-any.whl", hash = "sha256:6d65d49e0e92e6ceaa69588ec54136305e9086b0f9aa5ac0cff0c6fde105a6ce", size = 12921, upload-time = "2025-01-31T11:42:01.446Z" },
+    { url = "https://files.pythonhosted.org/packages/13/42/25b49bcdd29258eb4bb096fe7a602ef256cadfa4e18c6fecbfa14eabb35d/venvmngr-0.1.15-py3-none-any.whl", hash = "sha256:35f59623ab062ee23cb8e08c57909a4130421dd3f1b1d19d410070bda33c17da", size = 18857, upload-time = "2025-09-11T07:32:21.414Z" },
 ]
 
 [[package]]

@@ -7,14 +7,20 @@ from funcnodes_core.testing import (
     set_in_test as fn_set_in_test,
 )
 
-fn_set_in_test()
-
 
 class TestSocketWorker(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        fn_set_in_test()
         self.worker = SocketWorker(host="127.0.0.1", port=9382)
         self.worker.socket_loop._assert_connection = AsyncMock()
         self.worker.socket_loop.stop = AsyncMock()
+
+    async def asyncTearDown(self):
+        if self.worker:
+            self.worker.stop()
+            await asyncio.sleep(0.4)
+
+        fn_teardown()
 
     async def test_initial_state(self):
         self.assertEqual(self.worker.socket_loop._host, "127.0.0.1")

@@ -1,6 +1,6 @@
 [project]
 name = "funcnodes-worker"
-version = "1.0.0"
+version = "1.0.1"
 description = "Worker package for FuncNodes"
 readme = "README.md"
 authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
@@ -8,7 +8,8 @@ authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
 requires-python = ">=3.11"
 dependencies = [
  "asynctoolkit>=0.1.1",
- "funcnodes-core>=1.0.0",
+ "funcnodes-core>=1.0.1",
+ "packaging>=24.2",
  "pip>=25.0.1",
 ]
 
@@ -21,14 +22,14 @@ dev = [
     "snakeviz>=2.2.2",
     "vulture>=2.14",
     "funcnodes-worker[all]",
-    "funcnodes>=1.0.0a1",
+    "funcnodes>=1.0.0",
     "objgraph>=3.6.2",
 ]
 
 [project.optional-dependencies]
     subprocess-monitor = ["subprocess-monitor>=0.3.0"]
     http = ["aiohttp","requests","aiohttp_cors"]	
-    venv = ["venvmngr>=0.1.14"]
+    venv = ["venvmngr>=0.1.15"]
     all = ["funcnodes-worker[venv,http,subprocess-monitor]"]
 
 
