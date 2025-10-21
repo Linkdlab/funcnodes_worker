@@ -79,7 +79,6 @@ from .utils.modules import (
     install_repo,
     try_import_module,
     install_package,
-    version_to_range,
     version_string_to_Specifier,
 )
 from funcnodes_core.utils.files import write_json_secure
@@ -554,7 +553,13 @@ class Worker(ABC):
         self.viewdata: ViewState = {
             "renderoptions": fn.config.FUNCNODES_RENDER_OPTIONS,
         }
-        self._uuid = (slugify(name)[:16] + "_" + uuid4().hex[:16]) if name else uuid4().hex if not uuid else uuid
+        self._uuid = (
+            (slugify(name)[:16] + "_" + uuid4().hex[:16])
+            if name
+            else uuid4().hex
+            if not uuid
+            else uuid
+        )
         self._name = name or None
         self._data_path: Path = Path(
             data_path

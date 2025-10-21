@@ -4,7 +4,6 @@ from funcnodes_worker import Worker
 from funcnodes_worker.worker import WorkerState, NodeViewState
 import tempfile
 import os
-import sys
 from pathlib import Path
 import asyncio
 import time
@@ -70,7 +69,6 @@ class TestWorkerInitCases(TestCase):
     def test_with_debug(self):
         self.worker = self.Workerclass(**self.workerkwargs, debug=True)
         self.assertIsInstance(self.worker, self.Workerclass)
-        import logging
 
         self.assertEqual(self.worker.logger.level, logging.DEBUG)
 
@@ -286,6 +284,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     def test_add_node(self):
         node = self._add_node()
+        self.assertIsInstance(node, fn.Node)
 
     def _add_node(self):
         node_id = "test_node"
@@ -349,7 +348,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         self.worker.stop()
         runthread.join()
         self.assertFalse(self.worker.loop_manager.running)
-        t = time.time()
+        # t = time.time()
 
     async def test_unknown_cmd(self):
         cmd = {"cmd": "unknown", "kwargs": {}}
@@ -506,8 +505,6 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
         self.assertEqual(vs["nodes"], exp_nodes)
 
     async def test_add_package_dependency(self):
-        from funcnodes_worker.utils.modules import AVAILABLE_MODULES
-
         await self.worker.add_package_dependency("funcnodes-basic")
         self.assertIn("funcnodes-basic", self.worker._package_dependencies)
 

@@ -29,7 +29,7 @@ dev = [
 
 [project.optional-dependencies]
     subprocess-monitor = ["subprocess-monitor>=0.3.0"]
-    http = ["aiohttp","requests","aiohttp_cors"]	
+    http = ["aiohttp","requests","aiohttp_cors"]
     venv = ["venvmngr>=0.1.15"]
     all = ["funcnodes-worker[venv,http,subprocess-monitor]"]
 
