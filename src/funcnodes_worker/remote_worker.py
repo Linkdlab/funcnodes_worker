@@ -7,8 +7,6 @@ from funcnodes_core import (
     NodeSpace,
     JSONEncoder,
     JSONDecoder,
-    Node,
-    NodeIO,
     ByteEncoder,
     BytesEncdata,
 )

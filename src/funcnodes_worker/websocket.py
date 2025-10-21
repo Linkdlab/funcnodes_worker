@@ -405,7 +405,8 @@ class WSWorker(RemoteWorker):
         Args:
           data (bytes): The message data to send.
           header (dict): The message header.
-          client_connection (ClientConnection, optional): The client connection to send the message to. Defaults to None.
+          client_connection (ClientConnection, optional): The client connection to send
+            the message to. Defaults to None.
 
         Returns:
           None.

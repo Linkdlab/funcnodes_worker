@@ -1,17 +1,17 @@
 import asyncio
+import time
 from unittest import IsolatedAsyncioTestCase
 from funcnodes_core.testing import (
-    teardown as fn_teardown,
     set_in_test as fn_set_in_test,
 )
 
 fn_set_in_test()
 
-from funcnodes_worker import (
+from funcnodes_worker import (  # noqa: E402
     WSWorker,
 )
-from funcnodes_worker._opts import aiohttp, DependencyError
-import time
+from funcnodes_worker._opts import aiohttp, DependencyError  # noqa: E402
+
 
 if aiohttp:
 

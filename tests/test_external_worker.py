@@ -9,28 +9,28 @@ from funcnodes_core.testing import (
 fn_set_in_test()
 
 
-from funcnodes_worker import (
+from funcnodes_worker import (  # noqa: E402
     FuncNodesExternalWorker,
     RemoteWorker,
 )
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock  # noqa: E402
 
 
-from funcnodes_core import (
+from funcnodes_core import (  # noqa: E402
     instance_nodefunction,
     flatten_shelf,
 )
-from funcnodes_worker import CustomLoop
-import time
-import asyncio
-import logging
+from funcnodes_worker import CustomLoop  # noqa: E402
+import time  # noqa: E402
+import asyncio  # noqa: E402
+import logging  # noqa: E402
 
-import tempfile
-import json
-import gc
+import tempfile  # noqa: E402
+import json  # noqa: E402
+import gc  # noqa: E402
 
 try:
-    import objgraph
+    import objgraph  # noqa: E402
 except ImportError:
     objgraph = None
 

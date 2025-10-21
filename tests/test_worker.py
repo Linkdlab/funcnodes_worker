@@ -4,13 +4,14 @@ from funcnodes_worker import Worker
 from funcnodes_worker.worker import WorkerState, NodeViewState
 import tempfile
 import os
-import sys
 from pathlib import Path
 import asyncio
 import time
 import json
 from copy import deepcopy
 import logging
+import threading
+
 from funcnodes_core.testing import (
     teardown as fn_teardown,
     set_in_test as fn_set_in_test,
@@ -70,13 +71,10 @@ class TestWorkerInitCases(TestCase):
     def test_with_debug(self):
         self.worker = self.Workerclass(**self.workerkwargs, debug=True)
         self.assertIsInstance(self.worker, self.Workerclass)
-        import logging
 
         self.assertEqual(self.worker.logger.level, logging.DEBUG)
 
     def test_initandrun(self):
-        import threading
-
         wpath = fn.config.get_config_dir() / "workers"
 
         olfiles = (
@@ -97,15 +95,17 @@ class TestWorkerInitCases(TestCase):
             if worker_p_file.exists():
                 break
             time.sleep(0.1)
-        time.sleep(0.5)
+        time.sleep(2)
 
+        workersdir = fn.config.get_config_dir() / "workers"
+        workerdir = workersdir / f"worker_{self.workerkwargs['uuid']}"
         newfiles = os.listdir(fn.config.get_config_dir() / "workers")
         newfiles = set(newfiles) - set(olfiles)
 
         assert f"worker_{self.workerkwargs['uuid']}.p" in newfiles
         assert f"worker_{self.workerkwargs['uuid']}.runstate" in newfiles
         assert f"worker_{self.workerkwargs['uuid']}" in newfiles
-        assert (workerdir / f"worker_{self.workerkwargs['uuid']}").is_dir()
+        assert workerdir.is_dir()
         assert worker_p_file.exists()
 
         stopcmd = {"cmd": "stop_worker"}
@@ -128,10 +128,10 @@ class TestWorkerInitCases(TestCase):
 
         log = None
         if runthread.is_alive():
-            self.assertTrue("funcnodes.testuuid.log" in os.listdir(self.tempdir.name))
-            with open(
-                os.path.join(self.tempdir.name, "funcnodes.testuuid.log"), "r"
-            ) as f:
+            self.assertTrue(
+                "funcnodes.testuuid.log" in os.listdir(workerdir), os.listdir(workerdir)
+            )
+            with open(workerdir / "funcnodes.testuuid.log", "r") as f:
                 log = f.read()
 
         self.assertFalse(runthread.is_alive(), log)
@@ -178,7 +178,6 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
             "data_path": self.tempdir_path.absolute().resolve().as_posix(),
             "package_dependencies": {},
             "pid": os.getpid(),
-            "python_path": sys.executable,
             "type": self.Workerclass.__name__,
             "env_path": None,
             "update_on_startup": {
@@ -287,6 +286,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
 
     def test_add_node(self):
         node = self._add_node()
+        self.assertIsInstance(node, fn.Node)
 
     def _add_node(self):
         node_id = "test_node"
@@ -350,7 +350,7 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
         self.worker.stop()
         runthread.join()
         self.assertFalse(self.worker.loop_manager.running)
-        t = time.time()
+        # t = time.time()
 
     async def test_unknown_cmd(self):
         cmd = {"cmd": "unknown", "kwargs": {}}
@@ -360,10 +360,12 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
     async def test_run_double(self):
         t1 = asyncio.create_task(self.worker.run_forever_async())
         await self.worker.wait_for_running(timeout=10)
+        assert self.worker._process_file.exists()
 
         t2 = asyncio.create_task(self.worker.run_forever_async())
         with self.assertRaises(RuntimeError):
-            await t2
+            async with asyncio.timeout(10):
+                await t2
 
         # t1 should still be running while t2 should be done
         self.assertFalse(t1.done())
@@ -507,8 +509,6 @@ class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
         self.assertEqual(vs["nodes"], exp_nodes)
 
     async def test_add_package_dependency(self):
-        from funcnodes_worker.utils.modules import AVAILABLE_MODULES
-
         await self.worker.add_package_dependency("funcnodes-basic")
         self.assertIn("funcnodes-basic", self.worker._package_dependencies)
 
