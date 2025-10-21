@@ -1,6 +1,6 @@
 [project]
 name = "funcnodes-worker"
-version = "1.1.1a0"
+version = "1.1.1a1"
 description = "Worker package for FuncNodes"
 readme = "README.md"
 authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
