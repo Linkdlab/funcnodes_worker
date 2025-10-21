@@ -24,6 +24,7 @@ import importlib.util
 import inspect
 from uuid import uuid4
 import warnings
+from slugify import slugify
 
 try:
     import psutil
@@ -486,7 +487,6 @@ class WorkerJson(TypedDict):
     name: str | None
     data_path: str
     env_path: Optional[str]
-    python_path: str
     pid: Optional[int]
 
     # shelves_dependencies: Dict[str, ShelfDict]
@@ -554,7 +554,7 @@ class Worker(ABC):
         self.viewdata: ViewState = {
             "renderoptions": fn.config.FUNCNODES_RENDER_OPTIONS,
         }
-        self._uuid = uuid4().hex if not uuid else uuid
+        self._uuid = (slugify(name)[:16] + "_" + uuid4().hex[:16]) if name else uuid4().hex if not uuid else uuid
         self._name = name or None
         self._data_path: Path = Path(
             data_path
@@ -675,7 +675,6 @@ class Worker(ABC):
         env_path = None
 
         worker_dependencies: Dict[str, WorkerDict] = {}
-        python_path = sys.executable
         return self.update_config(
             WorkerJson(
                 type=self.__class__.__name__,
@@ -684,7 +683,6 @@ class Worker(ABC):
                 data_path=str(data_path),
                 env_path=env_path,
                 # shelves_dependencies=self._shelves_dependencies.copy(),
-                python_path=python_path,
                 worker_dependencies=worker_dependencies,
                 package_dependencies=self._package_dependencies.copy(),
                 pid=os.getpid(),
@@ -698,7 +696,6 @@ class Worker(ABC):
         conf["uuid"] = self.uuid()
         conf["name"] = self.name()
         conf["data_path"] = self.data_path
-        conf["python_path"] = sys.executable
         conf["pid"] = os.getpid()
 
         if "update_on_startup" not in conf:
@@ -777,7 +774,7 @@ class Worker(ABC):
                 if pid != "" and psutil is not None:
                     try:
                         pid = int(pid)
-                        if psutil.pid_exists(pid):
+                        if psutil.pid_exists(pid) and pid != os.getpid():
                             raise RuntimeError("Worker already running")
                     except ValueError:
                         raise RuntimeError("Worker already running")
@@ -1038,6 +1035,9 @@ class Worker(ABC):
     def uuid(self) -> str:
         """returns the uuid of the worker"""
         return self._uuid
+
+    def slug_name(self) -> str:
+        return slugify(self.name())
 
     @exposed_method()
     def name(self) -> str:
@@ -2008,9 +2008,11 @@ class Worker(ABC):
                 await asyncio.sleep(0.1)
 
     async def _prerun(self):
+        self._write_process_file()
         self.runstate = ("starting", "Loading packages")
         await reload_base(with_repos=False)
         self._save_disabled = True
+        self.logger.debug("Starting worker with sys.executable: %s", sys.executable)
         self.logger.info("Starting worker forever")
         self.loop_manager.reset_loop()
         self.runstate = ("starting", "Loading config")

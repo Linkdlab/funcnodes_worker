@@ -178,7 +178,6 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
             "data_path": self.tempdir_path.absolute().resolve().as_posix(),
             "package_dependencies": {},
             "pid": os.getpid(),
-            "python_path": sys.executable,
             "type": self.Workerclass.__name__,
             "env_path": None,
             "update_on_startup": {
