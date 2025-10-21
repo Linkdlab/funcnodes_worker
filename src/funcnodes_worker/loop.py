@@ -5,6 +5,7 @@ from typing import List, Optional
 import logging
 from funcnodes_core import NodeSpace
 import time
+import weakref
 
 MIN_DELAY = 0.1
 MIN_DEF = 0.1
@@ -99,7 +100,7 @@ class LoopManager:
     def __init__(self, worker) -> None:
         self._loops: List[CustomLoop] = []
         self._loop: asyncio.AbstractEventLoop = None  # type: ignore
-        self._worker = worker
+        self._worker = weakref.ref(worker)
         self.reset_loop()
         self._loop_tasks: List[asyncio.Task] = []
         self._running = False
@@ -144,7 +145,9 @@ class LoopManager:
                 else:
                     _ = self.async_call(loop.stop())
             except Exception as e:
-                self._worker.logger.exception(e)
+                worker = self._worker()
+                if worker is not None:
+                    worker.logger.exception(e)
                 raise e
 
         if loop in self._loops:
@@ -173,13 +176,16 @@ class LoopManager:
         return self._running
 
     def _prerun(self):
-        self._worker.logger.info("Setup loop manager to run")
+        worker = self._worker()
+        if worker is not None:
+            worker.logger.info("Setup loop manager to run")
         self._running = True
         loops2add = list(self._loops_to_add)
         self._loops_to_add = []
         for loop in loops2add:
             self.add_loop(loop)
-        self._worker.logger.info("Starting loop manager")
+        if worker is not None:
+            worker.logger.info("Starting loop manager")
 
     def run_forever(self):
         try:
@@ -197,9 +203,13 @@ class LoopManager:
             self._loop.run_until_complete(_rf())
         except KeyboardInterrupt:
             print("Interrupt received, shutting down.")
-            self._worker.stop()
+            worker = self._worker()
+            if worker is not None:
+                worker.stop()
         except Exception as e:
-            self._worker.logger.exception(e)
+            worker = self._worker()
+            if worker is not None:
+                worker.logger.exception(e)
             raise e
         finally:
             self.stop()
