@@ -358,10 +358,12 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
     async def test_run_double(self):
         t1 = asyncio.create_task(self.worker.run_forever_async())
         await self.worker.wait_for_running(timeout=10)
+        assert self.worker._process_file.exists()
 
         t2 = asyncio.create_task(self.worker.run_forever_async())
         with self.assertRaises(RuntimeError):
-            await t2
+            async with asyncio.timeout(10):
+                await t2
 
         # t1 should still be running while t2 should be done
         self.assertFalse(t1.done())

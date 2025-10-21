@@ -612,11 +612,11 @@ class Worker(ABC):
     def _config_file(self) -> Path:
         return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.json"
 
-    def _write_process_file(self):
+    def _check_process_file(self,hard:bool=False):
         pf = self._process_file
-        if not pf.parent.exists():
-            pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
         if pf.exists():
+            if hard:
+                raise RuntimeError("Worker already running")
             with open(pf, "r") as f:
                 d = f.read()
             if d != "":
@@ -626,8 +626,19 @@ class Worker(ABC):
                         cmd, int
                     ):  # highly probable that data is an int (pid)
                         self.loop_manager.async_call(self.run_cmd(cmd))
+                    else:
+                        if psutil.pid_exists(cmd) and cmd != os.getpid():
+                            raise RuntimeError("Worker already running")
+                except RuntimeError as e:
+                    raise e
                 except Exception:
                     pass
+
+    def _write_process_file(self):
+        pf = self._process_file
+        if not pf.parent.exists():
+            pf.parent.mkdir(parents=True, exist_ok=True)  # pragma: no cover
+        self._check_process_file()
         with open(pf, "w+") as f:
             f.write(str(os.getpid()))
 
@@ -767,22 +778,14 @@ class Worker(ABC):
     async def ini_config(self):
         """initializes the worker from the config file"""
         self.logger.debug("Init config")
-        if self._process_file.exists():
+        try:
+            self._check_process_file(hard=True)
+        except Exception:
             self.logger.debug("Found process file, wait and try again")
             await asyncio.sleep(
                 1
             )  # wait for at least 1 second to make sure the process file is written
-            if self._process_file.exists():
-                # get the pid from the process file
-                with open(self._process_file, "r") as f:
-                    pid = f.read()
-                if pid != "" and psutil is not None:
-                    try:
-                        pid = int(pid)
-                        if psutil.pid_exists(pid) and pid != os.getpid():
-                            raise RuntimeError("Worker already running")
-                    except ValueError:
-                        raise RuntimeError("Worker already running")
+            self._check_process_file()
 
         self._write_process_file()
         c = self.load_or_generate_config()
@@ -2013,6 +2016,7 @@ class Worker(ABC):
                 await asyncio.sleep(0.1)
 
     async def _prerun(self):
+        self._check_process_file(hard=True)
         self._write_process_file()
         self.runstate = ("starting", "Loading packages")
         await reload_base(with_repos=False)
@@ -2088,9 +2092,9 @@ class Worker(ABC):
                 pass
 
         if self._process_file.exists():
-            os.remove(self._process_file)
+            self._process_file.unlink()
         if self._runstate_file.exists():
-            os.remove(self._runstate_file)
+            self._runstate_file.unlink()
 
     def is_running(self):
         return self.loop_manager.running
