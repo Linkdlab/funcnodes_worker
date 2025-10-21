@@ -10,6 +10,8 @@ import time
 import json
 from copy import deepcopy
 import logging
+import threading
+
 from funcnodes_core.testing import (
     teardown as fn_teardown,
     set_in_test as fn_set_in_test,
@@ -73,8 +75,6 @@ class TestWorkerInitCases(TestCase):
         self.assertEqual(self.worker.logger.level, logging.DEBUG)
 
     def test_initandrun(self):
-        import threading
-
         wpath = fn.config.get_config_dir() / "workers"
 
         olfiles = (
@@ -95,15 +95,17 @@ class TestWorkerInitCases(TestCase):
             if worker_p_file.exists():
                 break
             time.sleep(0.1)
-        time.sleep(0.5)
+        time.sleep(2)
 
+        workersdir = fn.config.get_config_dir() / "workers"
+        workerdir = workersdir / f"worker_{self.workerkwargs['uuid']}"
         newfiles = os.listdir(fn.config.get_config_dir() / "workers")
         newfiles = set(newfiles) - set(olfiles)
 
         assert f"worker_{self.workerkwargs['uuid']}.p" in newfiles
         assert f"worker_{self.workerkwargs['uuid']}.runstate" in newfiles
         assert f"worker_{self.workerkwargs['uuid']}" in newfiles
-        assert (workerdir / f"worker_{self.workerkwargs['uuid']}").is_dir()
+        assert workerdir.is_dir()
         assert worker_p_file.exists()
 
         stopcmd = {"cmd": "stop_worker"}
@@ -126,10 +128,10 @@ class TestWorkerInitCases(TestCase):
 
         log = None
         if runthread.is_alive():
-            self.assertTrue("funcnodes.testuuid.log" in os.listdir(self.tempdir.name))
-            with open(
-                os.path.join(self.tempdir.name, "funcnodes.testuuid.log"), "r"
-            ) as f:
+            self.assertTrue(
+                "funcnodes.testuuid.log" in os.listdir(workerdir), os.listdir(workerdir)
+            )
+            with open(workerdir / "funcnodes.testuuid.log", "r") as f:
                 log = f.read()
 
         self.assertFalse(runthread.is_alive(), log)

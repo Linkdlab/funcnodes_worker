@@ -612,7 +612,7 @@ class Worker(ABC):
     def _config_file(self) -> Path:
         return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.json"
 
-    def _check_process_file(self,hard:bool=False):
+    def _check_process_file(self, hard: bool = False):
         pf = self._process_file
         if pf.exists():
             if hard:
