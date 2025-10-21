@@ -567,7 +567,6 @@ class Worker(ABC):
             else fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}"
         ).absolute()
         self.data_path = self._data_path
-        fn.logging.set_logging_dir(self.data_path)
         self.logger = fn.get_logger(self.uuid(), propagate=False)
         if debug:
             self.logger.setLevel("DEBUG")
