@@ -172,6 +172,14 @@ JSONMessage = Union[CmdMessage, ResultMessage, ErrorMessage, ProgressStateMessag
 EXTERNALWORKERLIB = "_external_worker"
 
 
+def get_workers_dir() -> Path:
+    return fn.config.get_config_dir() / "workers"
+
+
+def get_worker_dir(worker_id: str) -> Path:
+    return get_workers_dir() / f"worker_{worker_id}"
+
+
 class LocalWorkerLookupLoop(CustomLoop):
     class WorkerNotFoundError(Exception):
         pass
@@ -484,7 +492,7 @@ class WorkerJson(TypedDict):
     type: str
     uuid: str
     name: str | None
-    data_path: str
+    data_path: Optional[str]
     env_path: Optional[str]
     pid: Optional[int]
 
@@ -492,6 +500,14 @@ class WorkerJson(TypedDict):
     worker_dependencies: Dict[str, WorkerDict]
     package_dependencies: Dict[str, PackageDependency]
     update_on_startup: PossibleUpdates
+
+
+def worker_json_get_data_path(workerJson: WorkerJson) -> Path:
+    dp = workerJson.get("data_path")
+    if dp is None:
+        return get_worker_dir(workerJson["uuid"])
+    else:
+        return Path(dp)
 
 
 runstateLiteral = Literal["undefined", "starting", "running", "stopping", "stopped"]
@@ -562,10 +578,8 @@ class Worker(ABC):
         )
         self._name = name or None
         self._data_path: Path = Path(
-            data_path
-            if data_path
-            else fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}"
-        ).absolute()
+            data_path if data_path else get_worker_dir(self.uuid())
+        )
         self.data_path = self._data_path
         self.logger = fn.get_logger(self.uuid(), propagate=False)
         if debug:
@@ -601,15 +615,15 @@ class Worker(ABC):
 
     @property
     def _process_file(self) -> Path:
-        return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.p"
+        return get_workers_dir() / f"worker_{self.uuid()}.p"
 
     @property
     def _runstate_file(self) -> Path:
-        return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.runstate"
+        return get_workers_dir() / f"worker_{self.uuid()}.runstate"
 
     @property
     def _config_file(self) -> Path:
-        return fn.config.get_config_dir() / "workers" / f"worker_{self.uuid()}.json"
+        return get_workers_dir() / f"worker_{self.uuid()}.json"
 
     def _check_process_file(self, hard: bool = False):
         pf = self._process_file
@@ -767,11 +781,15 @@ class Worker(ABC):
             c = opt_conf
         c["uuid"] = self.uuid()
         c["pid"] = os.getpid()
+
+        # if the data_path is the default data_path, set it to None
+        if c["data_path"] == get_worker_dir(self.uuid()):
+            c["data_path"] = None
         cfile = self._config_file
         if not cfile.parent.exists():
             cfile.parent.mkdir(parents=True, exist_ok=True)
 
-        write_json_secure(data=c, filepath=cfile, cls=JSONEncoder)
+        write_json_secure(data=c, filepath=cfile, cls=JSONEncoder, indent=2)
         return c
 
     async def ini_config(self):
@@ -956,7 +974,7 @@ class Worker(ABC):
     # region properties
     @property
     def data_path(self) -> Path:
-        return self._data_path
+        return self._data_path.absolute()
 
     @data_path.setter
     def data_path(self, data_path: Path):
