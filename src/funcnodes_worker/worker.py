@@ -781,11 +781,15 @@ class Worker(ABC):
             c = opt_conf
         c["uuid"] = self.uuid()
         c["pid"] = os.getpid()
+
+        # if the data_path is the default data_path, set it to None
+        if c["data_path"] == get_worker_dir(self.uuid()):
+            c["data_path"] = None
         cfile = self._config_file
         if not cfile.parent.exists():
             cfile.parent.mkdir(parents=True, exist_ok=True)
 
-        write_json_secure(data=c, filepath=cfile, cls=JSONEncoder)
+        write_json_secure(data=c, filepath=cfile, cls=JSONEncoder, indent=2)
         return c
 
     async def ini_config(self):
