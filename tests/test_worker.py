@@ -47,7 +47,6 @@ class TestWorkerInitCases(TestCase):
     def setUp(self):
         fn_set_in_test()
         self.tempdir = tempfile.TemporaryDirectory()
-        # self.workerkwargs["data_path"] = self.tempdir.name
         self.workerkwargs["uuid"] = "testuuid"
         self.worker = None
 

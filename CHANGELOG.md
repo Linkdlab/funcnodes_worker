@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1 (2025-11-06)
+
+### Fix
+
+- **websocket**: handle web.ClientError during message sending to prevent unhandled exceptions
+
+### Refactor
+
+- **tests**: remove unused data_path assignment in TestWorkerInitCases
+
 ## 1.2.0 (2025-11-05)
 
 ### Refactor
