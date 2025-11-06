@@ -64,7 +64,8 @@ class ClientConnection:
                     await asyncio.wait_for(self.ws.send_bytes(msg), timeout=2)
                 else:
                     await asyncio.wait_for(self.ws.send_str(msg), timeout=2)
-
+            except web.ClientError:
+                pass
             except Exception as exc:
                 self.logger.exception("Error sending message", exc_info=exc)
             finally:
