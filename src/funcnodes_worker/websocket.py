@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple, Dict, Union
 from aiohttp import web, WSCloseCode, client_exceptions
 from pathlib import Path
+import contextlib
 
 try:
     import aiohttp_cors
@@ -54,24 +55,50 @@ class ClientConnection:
         self.queue = asyncio.Queue(maxsize=1000)  # Adjust maxsize as needed
         self.logger = logger
         self.send_task = asyncio.create_task(self.process_queue())
+        self._close_lock = asyncio.Lock()
+        self._closed = False
 
     async def process_queue(self):
-        while True:
-            msg: Union[str, bytes] = await self.queue.get()
-            try:
-                # Apply a timeout to avoid waiting indefinitely for a slow client
-                if isinstance(msg, bytes):
-                    await asyncio.wait_for(self.ws.send_bytes(msg), timeout=2)
+        try:
+            while True:
+                msg: Union[str, bytes] = await self.queue.get()
+                try:
+                    # Apply a timeout to avoid waiting indefinitely for a slow client
+                    if isinstance(msg, bytes):
+                        await asyncio.wait_for(self.ws.send_bytes(msg), timeout=2)
+                    else:
+                        await asyncio.wait_for(self.ws.send_str(msg), timeout=2)
+                except client_exceptions.ClientError:
+                    pass
+                except Exception as exc:
+                    self.logger.exception("Error sending message", exc_info=exc)
+                finally:
+                    self.queue.task_done()
+        except asyncio.CancelledError:
+            # Drain pending messages to keep task_done counts balanced.
+            while not self.queue.empty():
+                try:
+                    self.queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
                 else:
-                    await asyncio.wait_for(self.ws.send_str(msg), timeout=2)
-            except client_exceptions.ClientError:
-                pass
-            except Exception as exc:
-                self.logger.exception("Error sending message", exc_info=exc)
-            finally:
-                self.queue.task_done()
+                    self.queue.task_done()
+            raise
 
-    async def enqueue(self, msg: str):
+    async def close(self):
+        async with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            if not self.send_task.done():
+                self.send_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self.send_task
+
+    async def enqueue(self, msg: Union[str, bytes]):
+        if self._closed:
+            self.logger.debug("Dropping message for closed client connection")
+            return
         try:
             self.queue.put_nowait(msg)
         except asyncio.QueueFull:
@@ -163,7 +190,9 @@ class WSLoop(CustomLoop):
             FUNCNODES_LOGGER.exception(e)
         finally:
             self._worker.logger.debug("Client disconnected")
-            self.clients.remove(client_connection)
+            await client_connection.close()
+            if client_connection in self.clients:
+                self.clients.remove(client_connection)
 
         return websocket
 
@@ -340,10 +369,11 @@ class WSLoop(CustomLoop):
         """
 
         # close all clients
-        for client in self.clients:
+        for client in list(self.clients):
             await client.ws.close(
                 code=WSCloseCode.GOING_AWAY, message="Server shutting down"
             )
+            await client.close()
 
         self.message_store.clear()
 
