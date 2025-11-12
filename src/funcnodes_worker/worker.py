@@ -106,7 +106,6 @@ class WorkerState(TypedDict):
     backend: NodeSpaceJSON
     view: ViewState
     meta: MetaInfo
-    dependencies: dict[str, List[str]]
     external_workers: Dict[str, List[FuncNodesExternalWorkerJson]]
 
 
@@ -276,6 +275,10 @@ class LocalWorkerLookupLoop(CustomLoop):
     ):
         if worker_class not in self.worker_classes:
             self.worker_classes.append(worker_class)
+
+        self._client.logger.info(
+            f"starting local worker {worker_class.NODECLASSID} {worker_id}"
+        )
         worker_instance: FuncNodesExternalWorker = worker_class(workerid=worker_id)
 
         worker_instance.on(
@@ -288,6 +291,11 @@ class LocalWorkerLookupLoop(CustomLoop):
             worker_instance.get_all_nodeclasses(),
             [EXTERNALWORKERLIB, worker_instance.uuid],
         )
+        worker_nodeshelf = worker_instance.nodeshelf
+        if worker_nodeshelf is not None:
+            self._client.nodespace.lib.add_external_shelf(
+                worker_instance.nodeshelf, [EXTERNALWORKERLIB]
+            )
 
         def _inner_update_worker_shelf(*args, **kwargs):
             self._update_worker_shelf(worker_instance)
@@ -302,10 +310,19 @@ class LocalWorkerLookupLoop(CustomLoop):
         self._client.nodespace.lib.remove_shelf_path(
             [EXTERNALWORKERLIB, worker_instance.uuid]
         )
+        try:
+            self._client.nodespace.lib.remove_shelf_path([worker_instance.uuid])
+        except ValueError:
+            pass
         self._client.nodespace.lib.add_nodes(
             worker_instance.get_all_nodeclasses(),
             [EXTERNALWORKERLIB, worker_instance.uuid],
         )
+        worker_nodeshelf = worker_instance.nodeshelf
+        if worker_nodeshelf is not None:
+            self._client.nodespace.lib.add_external_shelf(
+                worker_nodeshelf, [EXTERNALWORKERLIB]
+            )
 
     def start_local_worker_by_id(self, worker_id: str):
         for worker_class in self.worker_classes:
@@ -1167,7 +1184,6 @@ class Worker(ABC):
             "backend": saving.serialize_nodespace_for_saving(self.nodespace),
             "view": ws,
             "meta": self.get_meta(),
-            "dependencies": self.nodespace.lib.get_dependencies(),
             "external_workers": {
                 workerclass.NODECLASSID: [
                     w_instance.serialize()

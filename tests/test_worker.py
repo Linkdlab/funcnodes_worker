@@ -415,7 +415,6 @@ class TestWorkerCase(IsolatedAsyncioTestCase):
             },
             view={},
             meta={},
-            dependencies={},
             external_workers={},
         )
 

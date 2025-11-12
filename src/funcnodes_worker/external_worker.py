@@ -1,9 +1,17 @@
 from __future__ import annotations
 from typing import Dict, List, TypedDict, Union, Any, Optional, Type
 from funcnodes_worker.loop import CustomLoop
-from funcnodes_core import NodeClassMixin, JSONEncoder, Encdata, EventEmitterMixin
+from funcnodes_core import (
+    NodeClassMixin,
+    JSONEncoder,
+    Encdata,
+    EventEmitterMixin,
+    Shelf,
+    FUNCNODES_LOGGER,
+)
 from weakref import WeakValueDictionary
 from pydantic import BaseModel
+from weakref import ref
 
 
 class ExternalWorkerConfig(BaseModel):
@@ -57,6 +65,7 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
         preconfig = config if isinstance(config, dict) else config.model_dump()
         self._config = self.config_cls(**{**self._config.model_dump(), **preconfig})
         self.post_config_update()
+        FUNCNODES_LOGGER.info(f"config updated for worker {self.uuid}: {self._config}")
         return self._config
 
     def post_config_update(self):
@@ -68,6 +77,24 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
     @property
     def config(self) -> ExternalWorkerConfig:
         return self._config
+
+    @property
+    def nodeshelf(self) -> Optional[ref[Shelf]]:
+        ns = self.get_nodeshelf()
+        print(f"nodeshelf: {ns}")
+        if ns is None:
+            return None
+        if ns.name != self.uuid:
+            ns = Shelf(
+                name=self.uuid,
+                description=ns.description,
+                nodes=list(ns.nodes),
+                subshelves=list(ns.subshelves),
+            )
+        return ref(ns)
+
+    def get_nodeshelf(self) -> Optional[Shelf]:
+        return None
 
     @classmethod
     def running_instances(cls) -> List[FuncNodesExternalWorker]:

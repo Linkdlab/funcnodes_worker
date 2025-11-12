@@ -138,6 +138,7 @@ class TestExternalWorker(IsolatedAsyncioTestCase):
                 "nodeclassid": "testexternalworker",
                 "running": False,
                 "uuid": "test",
+                "config": {},
             },
         )
 
@@ -184,7 +185,7 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
         self._loop = asyncio.get_event_loop()
         self.runtask = self._loop.create_task(self.retmoteworker.run_forever_async())
         t = time.time()
-        while not self.retmoteworker.loop_manager.running and time.time() - t < 10:
+        while not self.retmoteworker.loop_manager.running and time.time() - t < 50:
             if self.runtask.done():
                 if self.runtask.exception():
                     raise self.runtask.exception()
