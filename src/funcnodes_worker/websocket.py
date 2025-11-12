@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional, Tuple, Dict, Union
-from aiohttp import web, WSCloseCode
+from aiohttp import web, WSCloseCode, client_exceptions
 from pathlib import Path
 
 try:
@@ -64,7 +64,7 @@ class ClientConnection:
                     await asyncio.wait_for(self.ws.send_bytes(msg), timeout=2)
                 else:
                     await asyncio.wait_for(self.ws.send_str(msg), timeout=2)
-            except web.ClientError:
+            except client_exceptions.ClientError:
                 pass
             except Exception as exc:
                 self.logger.exception("Error sending message", exc_info=exc)

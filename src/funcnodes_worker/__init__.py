@@ -3,7 +3,7 @@ from ._opts import aiohttp, placeholder_function
 
 from .worker import Worker
 from .remote_worker import RemoteWorker
-from .external_worker import FuncNodesExternalWorker
+from .external_worker import FuncNodesExternalWorker, ExternalWorkerConfig
 from .loop import CustomLoop
 
 if not aiohttp:
@@ -17,6 +17,7 @@ from .socket import SocketWorker
 
 
 __all__ = [
+    "ExternalWorkerConfig",
     "Worker",
     "RemoteWorker",
     "FuncNodesExternalWorker",

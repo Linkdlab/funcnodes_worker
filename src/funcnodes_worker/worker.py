@@ -289,9 +289,23 @@ class LocalWorkerLookupLoop(CustomLoop):
             [EXTERNALWORKERLIB, worker_instance.uuid],
         )
 
+        def _inner_update_worker_shelf(*args, **kwargs):
+            self._update_worker_shelf(worker_instance)
+
+        worker_instance.on("nodes_update", _inner_update_worker_shelf)
+
         self._client.request_save()
 
         return worker_instance
+
+    def _update_worker_shelf(self, worker_instance: FuncNodesExternalWorker):
+        self._client.nodespace.lib.remove_shelf_path(
+            [EXTERNALWORKERLIB, worker_instance.uuid]
+        )
+        self._client.nodespace.lib.add_nodes(
+            worker_instance.get_all_nodeclasses(),
+            [EXTERNALWORKERLIB, worker_instance.uuid],
+        )
 
     def start_local_worker_by_id(self, worker_id: str):
         for worker_class in self.worker_classes:
@@ -369,6 +383,12 @@ class LocalWorkerLookupLoop(CustomLoop):
             #
             return True
         return False
+
+    async def get_local_worker_by_id(self, class_id: str, worker_id: str):
+        if class_id in FuncNodesExternalWorker.RUNNING_WORKERS:
+            if worker_id in FuncNodesExternalWorker.RUNNING_WORKERS[class_id]:
+                return FuncNodesExternalWorker.RUNNING_WORKERS[class_id][worker_id]
+        return None
 
 
 class SaveLoop(CustomLoop):
@@ -641,6 +661,8 @@ class Worker(ABC):
                         self.loop_manager.async_call(self.run_cmd(cmd))
                     else:
                         if psutil.pid_exists(cmd) and cmd != os.getpid():
+                            if self._runstate != "stopped":
+                                self.stop(save=False)
                             raise RuntimeError("Worker already running")
                 except RuntimeError as e:
                     raise e
@@ -1035,6 +1057,7 @@ class Worker(ABC):
         worker_id: str,
         class_id: str,
         name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
     ):
         worker_instance = FuncNodesExternalWorker.RUNNING_WORKERS.get(class_id, {}).get(
             worker_id
@@ -1043,6 +1066,8 @@ class Worker(ABC):
             raise ValueError(f"Worker {worker_id} not found")
         if name is not None:
             worker_instance.name = name
+        if config is not None:
+            worker_instance.update_config(config)
 
         self.loop_manager.async_call(self.worker_event("external_worker_update"))
 
@@ -1053,6 +1078,21 @@ class Worker(ABC):
         )
 
         return res
+
+    @exposed_method()
+    async def get_external_worker_config(
+        self, worker_id: str, class_id: str
+    ) -> Dict[str, Dict[str, Any]]:
+        worker_instance = await self.local_worker_lookup_loop.get_local_worker_by_id(
+            class_id, worker_id
+        )
+        if worker_instance is None:
+            raise ValueError(f"Worker {worker_id} ({class_id}) not found")
+        return {
+            "jsonSchema": worker_instance.config.model_json_schema(),
+            "uiSchema": None,
+            "formData": worker_instance.config.model_dump(mode="json"),
+        }
 
     # endregion local worker
     # region states
@@ -1293,6 +1333,8 @@ class Worker(ABC):
                                     w = self.add_local_worker(worker, instance["uuid"])
                                     if "name" in instance:
                                         w.name = instance["name"]
+                                    if "config" in instance:
+                                        w.update_config(instance["config"])
                                 found = True
                     if not found:
                         self.logger.warning(f"External worker {worker_id} not found")
@@ -2094,11 +2136,12 @@ class Worker(ABC):
         worker.run_forever()
         worker.logger.debug("Worker initialized and running stopped")
 
-    def stop(self):
+    def stop(self, save: bool = True):
         if self.is_running():
             self.loop_manager.async_call(self.worker_event("stopping"))
         self.runstate = "stopped"
-        self.save()
+        if save:
+            self.save()
         self._save_disabled = True
 
         self.loop_manager.stop()
@@ -2117,7 +2160,10 @@ class Worker(ABC):
         return self.loop_manager.running
 
     def cleanup(self):
-        self.runstate = "removed"
+        try:
+            self.runstate = "removed"
+        except NameError:
+            pass
         if self.is_running():  # pragma: no cover
             self.stop()
         self.loop_manager.stop()
