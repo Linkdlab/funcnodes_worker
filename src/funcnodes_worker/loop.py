@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import asyncio
 from typing import List, Optional
 import logging
+import warnings
 from funcnodes_core import NodeSpace
 import time
 import weakref
@@ -108,13 +109,25 @@ class LoopManager:
 
     def reset_loop(self):
         try:
-            self._loop = asyncio.get_event_loop()
-        except RuntimeError as e:
-            if str(e).startswith("There is no current event loop in thread"):
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-            else:
-                raise
+            # Try to get the running loop first (Python 3.7+)
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, try to get the current event loop
+            # Suppress deprecation warning for get_event_loop() in Python 3.13+
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=DeprecationWarning)
+                try:
+                    self._loop = asyncio.get_event_loop()
+                except RuntimeError as e:
+                    error_msg = str(e)
+                    if (
+                        "There is no current event loop" in error_msg
+                        or "There is no running event loop" in error_msg
+                    ):
+                        self._loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(self._loop)
+                    else:
+                        raise
 
     def add_loop(self, loop: CustomLoop):
         if self._running:
@@ -157,6 +170,31 @@ class LoopManager:
             task.cancel()
 
     def async_call(self, croutine: asyncio.Coroutine):
+        # Check if the loop is closed or not running
+        if self._loop.is_closed():
+            # Try to get the running loop instead
+            try:
+                running_loop = asyncio.get_running_loop()
+                return running_loop.create_task(croutine)
+            except RuntimeError:
+                # No running loop available, skip creating the task
+                worker = self._worker()
+                if worker is not None:
+                    worker.logger.warning(
+                        "Cannot create task: event loop is closed and no running loop available"
+                    )
+                return None
+
+        # Check if the loop is running
+        if not self._loop.is_running():
+            # Try to get the running loop instead
+            try:
+                running_loop = asyncio.get_running_loop()
+                return running_loop.create_task(croutine)
+            except RuntimeError:
+                # No running loop available, but our loop exists, try to use it
+                pass
+
         return self._loop.create_task(croutine)
 
     def __del__(self):
