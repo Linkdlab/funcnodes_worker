@@ -1,11 +1,7 @@
 import asyncio
 import time
 from unittest import IsolatedAsyncioTestCase
-from funcnodes_core.testing import (
-    set_in_test as fn_set_in_test,
-)
-
-fn_set_in_test()
+from pytest_funcnodes import setup as fn_setup, teardown as fn_teardown
 
 from funcnodes_worker import (  # noqa: E402
     WSWorker,
@@ -16,6 +12,12 @@ from funcnodes_worker._opts import aiohttp, DependencyError  # noqa: E402
 if aiohttp:
 
     class TestWSWorker(IsolatedAsyncioTestCase):
+        def setUp(self) -> None:
+            fn_setup()
+
+        def tearDown(self) -> None:
+            fn_teardown()
+
         async def test_ws_worker(self):
             ws_worker = WSWorker()
 
@@ -50,6 +52,12 @@ if aiohttp:
 else:
 
     class TestPlaceholder(IsolatedAsyncioTestCase):
+        def setUp(self) -> None:
+            fn_setup()
+
+        def tearDown(self) -> None:
+            fn_teardown()
+
         async def test_placeholder(self):
             with self.assertRaises(DependencyError):
                 WSWorker()

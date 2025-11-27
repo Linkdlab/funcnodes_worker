@@ -6,11 +6,8 @@ from funcnodes_worker.loop import (
     CustomLoop,
     LoopManager,
 )
-from funcnodes_core.testing import (
-    set_in_test as fn_set_in_test,
-)
 
-fn_set_in_test()
+from pytest_funcnodes import setup as fn_setup, teardown as fn_teardown
 
 
 class _TestLoop(CustomLoop):
@@ -19,6 +16,12 @@ class _TestLoop(CustomLoop):
 
 
 class TestCustomLoop(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        fn_setup()
+
+    def tearDown(self) -> None:
+        fn_teardown()
+
     async def asyncSetUp(self):
         self.logger = logging.getLogger("TestLogger")
         self.loop = _TestLoop(delay=0.2, logger=self.logger)
@@ -84,6 +87,12 @@ class TestCustomLoop(unittest.IsolatedAsyncioTestCase):
 
 
 class TestLoopManager(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        fn_setup()
+
+    def tearDown(self) -> None:
+        fn_teardown()
+
     async def asyncSetUp(self):
         self.worker = Mock()
         self.worker.logger = logging.getLogger("TestWorkerLogger")

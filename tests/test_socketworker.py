@@ -2,15 +2,11 @@ import unittest
 import asyncio
 from unittest.mock import AsyncMock
 from funcnodes_worker import SocketWorker
-from funcnodes_core.testing import (
-    teardown as fn_teardown,
-    set_in_test as fn_set_in_test,
-)
+from pytest_funcnodes import setup as fn_setup, teardown as fn_teardown
 
 
 class TestSocketWorker(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        fn_set_in_test()
         self.worker = SocketWorker(host="127.0.0.1", port=9382)
         self.worker.socket_loop._assert_connection = AsyncMock()
         self.worker.socket_loop.stop = AsyncMock()
@@ -20,6 +16,10 @@ class TestSocketWorker(unittest.IsolatedAsyncioTestCase):
             self.worker.stop()
             await asyncio.sleep(0.4)
 
+    def setUp(self) -> None:
+        fn_setup()
+
+    def tearDown(self) -> None:
         fn_teardown()
 
     async def test_initial_state(self):

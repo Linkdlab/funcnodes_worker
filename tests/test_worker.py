@@ -1,29 +1,27 @@
-from unittest import IsolatedAsyncioTestCase, TestCase
-import funcnodes_core as fn
-from funcnodes_worker import Worker
-from funcnodes_worker.worker import WorkerState, NodeViewState
-import tempfile
+import asyncio
+import io
+import json
+import logging
 import os
 from pathlib import Path
-import asyncio
 import time
-import json
+import zipfile
 from copy import deepcopy
-import logging
-import threading
+from typing import ClassVar, Type, Union
 
-from funcnodes_core.testing import (
-    teardown as fn_teardown,
-    set_in_test as fn_set_in_test,
-)
+import pytest
+import funcnodes_core as fn
+
+from funcnodes_worker import Worker, FuncNodesExternalWorker, ExternalWorkerConfig
+from funcnodes_worker.worker import WorkerState, NodeViewState
+from pydantic import Field
+
+
+from pytest_funcnodes import funcnodes_test
 
 
 class _TestWorkerClass(Worker):
-    def _on_nodespaceerror(
-        self,
-        error: Exception,
-        src: fn.NodeSpace,
-    ):
+    def _on_nodespaceerror(self, error: Exception, src: fn.NodeSpace):
         """handle nodespace errors"""
 
     def on_nodespaceevent(self, event, **kwargs):
@@ -40,482 +38,642 @@ testshelf = fn.Shelf(
 )
 
 
-class TestWorkerInitCases(TestCase):
-    Workerclass = _TestWorkerClass
-    workerkwargs = {}
-
-    def setUp(self):
-        fn_set_in_test()
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.workerkwargs["uuid"] = "testuuid"
-        self.worker = None
-
-    async def asyncTearDown(self):
-        if self.worker:
-            self.worker.stop()
-            await asyncio.sleep(0.4)
-            del self.worker
-        fn_teardown()
-
-        self.tempdir.cleanup()
-
-    def test_initialization(self):
-        self.worker = self.Workerclass(**self.workerkwargs)
-        self.assertIsInstance(self.worker, self.Workerclass)
-
-    def test_with_default_nodes(self):
-        self.worker = self.Workerclass(**self.workerkwargs, default_nodes=[testshelf])
-        self.assertIsInstance(self.worker, self.Workerclass)
-
-    def test_with_debug(self):
-        self.worker = self.Workerclass(**self.workerkwargs, debug=True)
-        self.assertIsInstance(self.worker, self.Workerclass)
-
-        self.assertEqual(self.worker.logger.level, logging.DEBUG)
-
-    def test_initandrun(self):
-        wpath = fn.config.get_config_dir() / "workers"
-
-        olfiles = (
-            os.listdir(fn.config.get_config_dir() / "workers") if wpath.exists() else []
-        )
-
-        runthread = threading.Thread(
-            target=self.Workerclass.init_and_run_forever,
-            kwargs=self.workerkwargs,
-            daemon=True,
-        )
-        runthread.start()
-        workerdir = fn.config.get_config_dir() / "workers"
-        worker_p_file = workerdir / f"worker_{self.workerkwargs['uuid']}.p"
-
-        # wait max 10 seconds for the worker to start
-        for i in range(200):
-            if worker_p_file.exists():
-                break
-            time.sleep(0.1)
-        time.sleep(2)
-
-        workersdir = fn.config.get_config_dir() / "workers"
-        workerdir = workersdir / f"worker_{self.workerkwargs['uuid']}"
-        newfiles = os.listdir(fn.config.get_config_dir() / "workers")
-        newfiles = set(newfiles) - set(olfiles)
-
-        assert f"worker_{self.workerkwargs['uuid']}.p" in newfiles
-        assert f"worker_{self.workerkwargs['uuid']}.runstate" in newfiles
-        assert f"worker_{self.workerkwargs['uuid']}" in newfiles
-        assert workerdir.is_dir()
-        assert worker_p_file.exists()
-
-        stopcmd = {"cmd": "stop_worker"}
-
-        with open(worker_p_file, "r") as f:
-            pid = f.read()
-
-        self.assertTrue(pid.isdigit(), pid)
-
-        self.assertEqual(os.getpid(), int(pid))
-
-        with open(worker_p_file, "w") as f:
-            json.dump(stopcmd, f)
-
-        # wait max 5 seconds for the worker to stop
-        for i in range(150):
-            if not runthread.is_alive():
-                break
-            time.sleep(0.1)
-
-        log = None
-        if runthread.is_alive():
-            self.assertTrue(
-                "funcnodes.testuuid.log" in os.listdir(workerdir), os.listdir(workerdir)
-            )
-            with open(workerdir / "funcnodes.testuuid.log", "r") as f:
-                log = f.read()
-
-        self.assertFalse(runthread.is_alive(), log)
-
-        runthread.join()
+@pytest.fixture
+def worker_class():
+    return _TestWorkerClass
 
 
-class TestWorkerCase(IsolatedAsyncioTestCase):
-    Workerclass = _TestWorkerClass
+@pytest.fixture
+def worker_kwargs():
+    return {"uuid": "testuuid"}
 
-    async def asyncSetUp(self):
-        fn_set_in_test()
-        self.tempdir = tempfile.TemporaryDirectory()
-        self.tempdir_path = Path(self.tempdir.name)
-        self.worker = self.Workerclass(
-            data_path=self.tempdir_path,
-            default_nodes=[testshelf],
-            debug=True,
-            uuid="TestWorkerCase_testuuid",
-        )
-        self.worker.write_config()
 
-    async def asyncTearDown(self):
-        self.worker.stop()
+@pytest.fixture
+async def worker_case(worker_class: Type[_TestWorkerClass], tmp_path: Union[Path, str]):
+    worker = worker_class(
+        data_path=tmp_path,
+        default_nodes=[testshelf],
+        debug=True,
+        uuid="TestWorkerCase_testuuid",
+    )
+    worker.write_config()
+    try:
+        yield worker
+    finally:
+        worker.stop()
         await asyncio.sleep(0.4)
-        fn_teardown()
-        self.tempdir.cleanup()
 
-    def test_initialization(self):
-        self.assertIsInstance(self.worker, self.Workerclass)
-        self.assertTrue(hasattr(self.worker, "nodespace"))
-        self.assertTrue(hasattr(self.worker, "loop_manager"))
 
-    def test_uuid(self):
-        self.assertIsInstance(self.worker.uuid(), str)
+@pytest.fixture
+async def interacting_worker(running_test_worker: _TestWorkerClass):
+    worker = running_test_worker
+    node1 = worker.add_node("test_node")
+    node2 = worker.add_node("test_node")
+    await asyncio.sleep(0.5)
+    worker.add_edge(node1.uuid, "out", node2.uuid, "a")
+    await asyncio.sleep(0.5)
+    return worker, node1, node2
 
-    def test_config_generation(self):
-        config = fn.JSONEncoder.apply_custom_encoding(self.worker.config)
 
-        self.maxDiff = None
-        expected = {
-            "uuid": self.worker.uuid(),
-            "name": self.worker.name(),
-            "data_path": self.tempdir_path.absolute().resolve().as_posix(),
-            "package_dependencies": {},
-            "pid": os.getpid(),
-            "type": self.Workerclass.__name__,
-            "env_path": None,
-            "update_on_startup": {
-                "funcnodes": True,
-                "funcnodes-core": True,
-                "funcnodes-worker": True,
-            },
-            "worker_dependencies": {},
-        }
-        self.assertEqual(config, expected)
+@pytest.fixture
+def worker_instance(
+    worker_class: Type[_TestWorkerClass],
+    # tmp_path:Union[Path, str],
+    funcnodes_test_setup_teardown,
+):
+    worker = worker_class(
+        # data_path=tmp_path,
+        default_nodes=[testshelf],
+        uuid="TestExternalWorkerUpdate",
+    )
+    assert len(list(worker.data_path.parent.iterdir())) == 1, (
+        f"data_path {worker.data_path.parent} is not empty, but {list(worker.data_path.parent.iterdir())}"
+    )
+    return worker
 
-    def test_exportable_config(self):
-        config = self.worker.exportable_config()
-        self.assertIsInstance(config, dict)
-        expected = {
-            "name": self.worker.name(),
-            "package_dependencies": {},
-            "type": self.Workerclass.__name__,
-            "update_on_startup": {
-                "funcnodes": True,
-                "funcnodes-core": True,
-                "funcnodes-worker": True,
-            },
-            "worker_dependencies": {},
-        }
-        self.assertEqual(config, expected)
 
-    def test_write_config(self):
-        config_path = self.worker._config_file
-        self.worker.write_config()
-        self.assertTrue(os.path.exists(config_path))
+@pytest.fixture
+async def running_test_worker(worker_instance: _TestWorkerClass):
+    thread = worker_instance.run_forever_threaded()
+    await worker_instance.wait_for_running(timeout=10)
+    try:
+        yield worker_instance
+    finally:
+        worker_instance.stop()
+        thread.join()
 
-    def test_load_config(self):
-        self.worker.write_config()
-        config = self.worker.load_config()
-        self.assertIsNotNone(config)
-        self.assertEqual(config["uuid"], self.worker.uuid())
 
-    def test_process_file_handling(self):
-        self.worker._write_process_file()
-        process_file = self.worker._process_file
-        self.assertTrue(os.path.exists(process_file))
+@pytest.fixture(scope="function", autouse=True)
+def register_ndoe():
+    fn.node.register_node(testnode)
 
-    def test_save_state(self):
-        self.worker.save()
-        state_path = self.worker.local_nodespace
-        self.assertTrue(os.path.exists(state_path))
 
-    async def test_run_cmd(self):
-        cmd = {"cmd": "uuid", "kwargs": {}}
-        result = await self.worker.run_cmd(cmd)
-        self.assertEqual(result, self.worker.uuid())
+def create_test_node(worker):
+    node = worker.add_node("test_node")
+    assert isinstance(node, fn.Node)
+    assert isinstance(node, testnode)
+    retrieved = worker.get_node(node.uuid)
+    assert retrieved is node
+    return node
 
-    async def test_full_state(self):
-        ser = fn.JSONEncoder.apply_custom_encoding(self.worker.full_state())
-        self.assertIsInstance(ser, dict)
-        expected = {
-            "backend": {
-                "nodes": [],
-                "prop": {},
-                "lib": {
-                    "shelves": [
-                        {
-                            "nodes": [
-                                {
-                                    "node_id": "test_node",
-                                    "inputs": [
-                                        {
-                                            "type": "int",
-                                            "description": None,
-                                            "uuid": "a",
-                                        }
-                                    ],
-                                    "outputs": [
-                                        {
-                                            "type": "int",
-                                            "description": None,
-                                            "uuid": "out",
-                                        }
-                                    ],
-                                    "description": "",
-                                    "node_name": "testnode",
-                                }
-                            ],
-                            "subshelves": [],
-                            "name": "testshelf",
-                            "description": "Test shelf",
-                        }
-                    ]
-                },
-                "edges": [],
-            },
-            "worker": {},
-            "worker_dependencies": [],
-            "progress_state": {
-                "message": "",
-                "status": "",
-                "progress": 0,
-                "blocking": False,
-            },
-            "meta": {"id": self.worker.nodespace_id, "version": fn.__version__},
-        }
 
-        ser.pop("view", None)  # because this differes on other installations
-        self.assertEqual(ser, expected)
+@funcnodes_test
+def test_worker_initialization(worker_class, worker_kwargs):
+    worker = worker_class(**worker_kwargs)
+    try:
+        assert isinstance(worker, worker_class)
+    finally:
+        worker.stop()
 
-    def test_add_node(self):
-        node = self._add_node()
-        self.assertIsInstance(node, fn.Node)
 
-    def _add_node(self):
-        node_id = "test_node"
-        addednode = self.worker.add_node(node_id)
-        self.assertIsInstance(addednode, fn.Node)
-        self.assertIsInstance(addednode, testnode)
+@funcnodes_test
+def test_with_default_nodes(worker_class, worker_kwargs):
+    worker = worker_class(**worker_kwargs, default_nodes=[testshelf])
+    try:
+        assert isinstance(worker, worker_class)
+    finally:
+        worker.stop()
 
-        node = self.worker.get_node(addednode.uuid)
-        self.assertIsNotNone(node)
-        self.assertEqual(node, addednode)
-        return node
 
-    def test_remove_node(self):
-        node = self._add_node()
-        self.worker.get_node(node.uuid)
-        self.worker.remove_node(node.uuid)
-        with self.assertRaises(ValueError):
-            self.worker.get_node(node.uuid)
+@funcnodes_test
+def test_with_debug(worker_class: Type[_TestWorkerClass], worker_kwargs):
+    worker = worker_class(**worker_kwargs, debug=True)
+    try:
+        assert isinstance(worker, worker_class)
+        assert worker.logger.level == logging.DEBUG
+    finally:
+        worker.stop()
 
-    def test_add_edge(self):
-        node1 = self._add_node()
-        node2 = self._add_node()
 
-        self.worker.add_edge(node1.uuid, "out", node2.uuid, "a")
-        edges = self.worker.get_edges()
-        self.assertEqual(len(edges), 1)
-        self.assertEqual(
-            edges,
-            [
-                (
-                    node1.uuid,
-                    "out",
-                    node2.uuid,
-                    "a",
-                )
-            ],
+@funcnodes_test(disable_file_handler=False)
+def test_worker_logger(worker_instance: _TestWorkerClass):
+    worker = worker_instance
+    assert worker.logger.level == logging.DEBUG
+    assert worker.logger.name == "funcnodes." + worker.uuid()
+    assert len(worker.logger.handlers) == 2, worker.logger.handlers
+    # At least one stream-like handler
+    file_handlers = [
+        h for h in worker.logger.handlers if isinstance(h, logging.FileHandler)
+    ]
+    stream_handlers = [
+        h
+        for h in worker.logger.handlers
+        if isinstance(h, logging.StreamHandler)
+        and not isinstance(h, logging.FileHandler)  # exclude FileHandler + subclasses
+    ]
+    # One file-like handler (FileHandler / RotatingFileHandler / etc.)
+    assert len(file_handlers) == 1, file_handlers
+
+    # One pure stream handler (console)
+    assert len(stream_handlers) == 1, stream_handlers
+
+
+@funcnodes_test(disable_file_handler=False)
+def test_initandrun(running_test_worker: _TestWorkerClass):
+    workersdir = fn.config.get_config_dir() / "workers"
+    worker = running_test_worker
+    workerdir = workersdir / f"worker_{worker.uuid()}"
+    worker_p_file = workersdir / f"worker_{worker.uuid()}.p"
+
+    for _ in range(200):
+        if worker_p_file.exists():
+            break
+        time.sleep(0.1)
+    time.sleep(2)
+
+    newfiles = os.listdir(fn.config.get_config_dir() / "workers")
+    # newfiles = set(newfiles) - set(existing_files)
+
+    assert workerdir.is_dir()
+    assert worker_p_file.exists()
+
+    assert f"worker_{worker.uuid()}.p" in newfiles, (
+        f"worker_{worker.uuid()}.p not found in {fn.config.get_config_dir() / 'workers'}"
+    )
+    assert f"worker_{worker.uuid()}.runstate" in newfiles, (
+        f"worker_{worker.uuid()}.runstate not found in {fn.config.get_config_dir() / 'workers'}"
+    )
+    assert f"worker_{worker.uuid()}" in newfiles, (
+        f"worker_{worker.uuid()} not found in {fn.config.get_config_dir() / 'workers'}"
+    )
+
+    with open(worker_p_file, "r") as file_handle:
+        pid = file_handle.read()
+
+    assert pid.isdigit(), pid
+    assert os.getpid() == int(pid)
+
+    with open(worker_p_file, "w") as file_handle:
+        json.dump({"cmd": "stop_worker"}, file_handle)
+
+    for _ in range(150):
+        if not worker_p_file.exists():
+            break
+        time.sleep(0.1)
+    time.sleep(0.5)
+    log_contents = None
+    if worker_p_file.exists():
+        assert f"funcnodes.{worker.uuid()}.log" in os.listdir(workerdir), (
+            f"funcnodes.testuuid.log not found in {workerdir}"
         )
+        with open(workerdir / f"funcnodes.{worker.uuid()}.log", "r") as logfile:
+            log_contents = logfile.read()
 
-    def test_remove_edge(self):
-        self.test_add_edge()
-        edge = self.worker.get_edges()[0]
-        self.worker.remove_edge(*edge)
-        self.assertEqual(len(self.worker.get_edges()), 0)
+    assert not worker_p_file.exists(), log_contents
 
-    def test_update_node(self):
-        node = self._add_node()
-        self.worker.update_node(node.uuid, {"name": "Updated Node"})
-        node = self.worker.get_node(node.uuid)
-        self.assertEqual(node.name, "Updated Node")
 
-    async def test_run(self):
-        asyncio.create_task(self.worker.run_forever_async())
-        await self.worker.wait_for_running(timeout=10)
-        self.assertTrue(self.worker.loop_manager.running)
-        self.worker.stop()
-        self.assertFalse(self.worker.loop_manager.running)
+@funcnodes_test
+async def test_worker_case_initialization(worker_case, worker_class):
+    assert isinstance(worker_case, worker_class)
+    assert hasattr(worker_case, "nodespace")
+    assert hasattr(worker_case, "loop_manager")
+    assert worker_case.nodespace.lib.has_node_id("test_node")
 
-    async def test_run_threaded(self):
-        runthread = self.worker.run_forever_threaded()
-        await self.worker.wait_for_running(timeout=10)
-        self.worker.stop()
-        runthread.join()
-        self.assertFalse(self.worker.loop_manager.running)
-        # t = time.time()
 
-    async def test_unknown_cmd(self):
-        cmd = {"cmd": "unknown", "kwargs": {}}
-        with self.assertRaises(Worker.UnknownCmdException):
-            await self.worker.run_cmd(cmd)
+@funcnodes_test
+async def test_worker_case_uuid(worker_case):
+    assert isinstance(worker_case.uuid(), str)
 
-    async def test_run_double(self):
-        t1 = asyncio.create_task(self.worker.run_forever_async())
-        await self.worker.wait_for_running(timeout=10)
-        assert self.worker._process_file.exists()
 
-        t2 = asyncio.create_task(self.worker.run_forever_async())
-        with self.assertRaises(RuntimeError):
-            async with asyncio.timeout(10):
-                await t2
+@funcnodes_test
+async def test_worker_case_config_generation(worker_case):
+    config = fn.JSONEncoder.apply_custom_encoding(worker_case.config)
+    expected = {
+        "uuid": worker_case.uuid(),
+        "name": worker_case.name(),
+        "data_path": worker_case.data_path.absolute().resolve().as_posix(),
+        "package_dependencies": {},
+        "pid": os.getpid(),
+        "type": worker_case.__class__.__name__,
+        "env_path": None,
+        "update_on_startup": {
+            "funcnodes": True,
+            "funcnodes-core": True,
+            "funcnodes-worker": True,
+        },
+        "worker_dependencies": {},
+    }
+    assert config == expected
 
-        # t1 should still be running while t2 should be done
-        self.assertFalse(t1.done())
-        self.assertTrue(t2.done())
 
-        self.worker.stop()
-        async with asyncio.timeout(5):
-            await t1
+@funcnodes_test
+async def test_worker_case_exportable_config(worker_case):
+    config = worker_case.exportable_config()
+    expected = {
+        "name": worker_case.name(),
+        "package_dependencies": {},
+        "type": worker_case.__class__.__name__,
+        "update_on_startup": {
+            "funcnodes": True,
+            "funcnodes-core": True,
+            "funcnodes-worker": True,
+        },
+        "worker_dependencies": {},
+    }
+    assert config == expected
 
-    async def test_load(self):
-        asyncio.create_task(self.worker.run_forever_async())
-        await self.worker.wait_for_running(timeout=10)
-        data = WorkerState(
-            backend={
-                "nodes": [],
-                "prop": {},
-                "lib": {
-                    "shelves": [
-                        {
-                            "nodes": [
-                                {
-                                    "node_id": "test_node",
-                                    "inputs": [
-                                        {
-                                            "type": "int",
-                                            "description": None,
-                                            "uuid": "a",
-                                        }
-                                    ],
-                                    "outputs": [
-                                        {
-                                            "type": "int",
-                                            "description": None,
-                                            "uuid": "out",
-                                        }
-                                    ],
-                                    "description": "",
-                                    "node_name": "testnode",
-                                }
-                            ],
-                            "subshelves": [],
-                            "name": "testshelf",
-                            "description": "Test shelf",
-                        }
-                    ]
-                },
-                "edges": [],
+
+@funcnodes_test
+async def test_worker_case_write_config(worker_case):
+    config_path = worker_case._config_file
+    worker_case.write_config()
+    assert os.path.exists(config_path)
+
+
+@funcnodes_test
+async def test_worker_case_load_config(worker_case):
+    worker_case.write_config()
+    config = worker_case.load_config()
+    assert config is not None
+    assert config["uuid"] == worker_case.uuid()
+
+
+@funcnodes_test
+async def test_worker_case_process_file_handling(worker_case):
+    worker_case._write_process_file()
+    process_file = worker_case._process_file
+    assert os.path.exists(process_file)
+
+
+@funcnodes_test
+async def test_worker_case_save_state(worker_case):
+    worker_case.save()
+    assert os.path.exists(worker_case.local_nodespace)
+
+
+@funcnodes_test
+async def test_worker_run_cmd(worker_case):
+    cmd = {"cmd": "uuid", "kwargs": {}}
+    result = await worker_case.run_cmd(cmd)
+    assert result == worker_case.uuid()
+
+
+@funcnodes_test
+async def test_worker_full_state(worker_case):
+    ser = fn.JSONEncoder.apply_custom_encoding(worker_case.full_state())
+    expected = {
+        "backend": {
+            "nodes": [],
+            "prop": {},
+            "lib": {
+                "shelves": [
+                    {
+                        "nodes": [
+                            {
+                                "node_id": "test_node",
+                                "inputs": [
+                                    {
+                                        "type": "int",
+                                        "description": None,
+                                        "uuid": "a",
+                                    }
+                                ],
+                                "outputs": [
+                                    {
+                                        "type": "int",
+                                        "description": None,
+                                        "uuid": "out",
+                                    }
+                                ],
+                                "description": "",
+                                "node_name": "testnode",
+                            }
+                        ],
+                        "subshelves": [],
+                        "name": "testshelf",
+                        "description": "Test shelf",
+                    }
+                ]
             },
-            view={},
-            meta={},
-            external_workers={},
-        )
+            "edges": [],
+        },
+        "worker": {},
+        "worker_dependencies": [],
+        "progress_state": {
+            "message": "",
+            "status": "",
+            "progress": 0,
+            "blocking": False,
+        },
+        "meta": {"id": worker_case.nodespace_id, "version": fn.__version__},
+    }
 
-        self.assertIsNotNone(self.worker.nodespace_loop)
-        self.assertIsNotNone(self.worker.loop_manager)
-        self.assertTrue(self.worker.loop_manager.running)
-
-        self.assertIsNotNone(self.worker.nodespace_loop._manager)
-        await self.worker.load(data)
-
-        _d = deepcopy(data)
-        _d["meta"]["id"] = "abc"
-        # should raise an id to short erroer
-        with self.assertRaises(ValueError):
-            await self.worker.load(_d)
-
-        _d = deepcopy(data)
-        _d["meta"]["id"] = None
-        # this should work
-        await self.worker.load(_d)
-
-        _d = deepcopy(data)
-        _d["meta"]["id"] = "a" * 32
-        # this should work
-        await self.worker.load(_d)
+    ser.pop("view", None)
+    assert ser == expected
 
 
-class TestWorkerInteractingCase(IsolatedAsyncioTestCase):
-    Workerclass = _TestWorkerClass
+@funcnodes_test
+async def test_worker_add_node(worker_case):
+    node = create_test_node(worker_case)
+    assert isinstance(node, fn.Node)
 
-    async def asyncSetUp(self):
-        self.tempdir = tempfile.TemporaryDirectory()
-        fn_set_in_test()
-        self.worker = self.Workerclass(
-            data_path=Path(self.tempdir.name), default_nodes=[testshelf], debug=True
-        )
 
-        asyncio.create_task(self.worker.run_forever_async())
+@funcnodes_test
+async def test_worker_remove_node(worker_case):
+    node = create_test_node(worker_case)
+    worker_case.remove_node(node.uuid)
+    with pytest.raises(ValueError):
+        worker_case.get_node(node.uuid)
+
+
+@funcnodes_test
+async def test_worker_add_edge(worker_case):
+    node1 = create_test_node(worker_case)
+    node2 = create_test_node(worker_case)
+    worker_case.add_edge(node1.uuid, "out", node2.uuid, "a")
+    edges = worker_case.get_edges()
+    assert len(edges) == 1
+    assert edges == [(node1.uuid, "out", node2.uuid, "a")]
+
+
+@funcnodes_test
+async def test_worker_remove_edge(worker_case):
+    node1 = create_test_node(worker_case)
+    node2 = create_test_node(worker_case)
+    worker_case.add_edge(node1.uuid, "out", node2.uuid, "a")
+    edge = worker_case.get_edges()[0]
+    worker_case.remove_edge(*edge)
+    assert len(worker_case.get_edges()) == 0
+
+
+@funcnodes_test
+async def test_worker_update_node(worker_case):
+    node = create_test_node(worker_case)
+    worker_case.update_node(node.uuid, {"name": "Updated Node"})
+    updated = worker_case.get_node(node.uuid)
+    assert updated.name == "Updated Node"
+
+
+@funcnodes_test
+async def test_worker_run(worker_case):
+    task = asyncio.create_task(worker_case.run_forever_async())
+    await worker_case.wait_for_running(timeout=10)
+    assert worker_case.loop_manager.running
+    worker_case.stop()
+    assert not worker_case.loop_manager.running
+    async with asyncio.timeout(5):
+        await task
+
+
+@funcnodes_test
+async def test_worker_run_threaded(worker_case):
+    runthread = worker_case.run_forever_threaded()
+    await worker_case.wait_for_running(timeout=10)
+    worker_case.stop()
+    runthread.join()
+    assert not worker_case.loop_manager.running
+
+
+@funcnodes_test
+async def test_worker_unknown_cmd(worker_case):
+    cmd = {"cmd": "unknown", "kwargs": {}}
+    with pytest.raises(Worker.UnknownCmdException):
+        await worker_case.run_cmd(cmd)
+
+
+@funcnodes_test
+async def test_worker_run_double(worker_case):
+    first_task = asyncio.create_task(worker_case.run_forever_async())
+    await worker_case.wait_for_running(timeout=10)
+    assert worker_case._process_file.exists()
+
+    second_task = asyncio.create_task(worker_case.run_forever_async())
+    with pytest.raises(RuntimeError):
         async with asyncio.timeout(10):
-            while self.worker.runstate != "running":
-                await asyncio.sleep(0.1)
-        await asyncio.sleep(0.5)
-        node_id = "test_node"
-        self.node1 = self.worker.add_node(node_id)
-        self.node2 = self.worker.add_node(node_id)
-        await asyncio.sleep(0.5)
-        self.worker.add_edge(self.node1.uuid, "out", self.node2.uuid, "a")
-        await asyncio.sleep(0.5)  # let the nodes trigger
+            await second_task
 
-    async def asyncTearDown(self):
-        self.worker.stop()
-        await asyncio.sleep(0.4)
-        fn_teardown()
-        self.tempdir.cleanup()
+    assert not first_task.done()
+    assert second_task.done()
 
-    async def test_get_io_value(self):
-        # list nodes
-        nodes = self.worker.get_nodes()
-        self.assertEqual(len(nodes), 2)
+    worker_case.stop()
+    async with asyncio.timeout(5):
+        await first_task
 
-        v = self.worker.get_io_value(self.node1.uuid, "out")
 
-        self.assertEqual(v, 1)
+@funcnodes_test
+async def test_worker_load(worker_case):
+    run_task = asyncio.create_task(worker_case.run_forever_async())
+    await worker_case.wait_for_running(timeout=10)
+    data = WorkerState(
+        backend={
+            "nodes": [],
+            "prop": {},
+            "lib": {
+                "shelves": [
+                    {
+                        "nodes": [
+                            {
+                                "node_id": "test_node",
+                                "inputs": [
+                                    {
+                                        "type": "int",
+                                        "description": None,
+                                        "uuid": "a",
+                                    }
+                                ],
+                                "outputs": [
+                                    {
+                                        "type": "int",
+                                        "description": None,
+                                        "uuid": "out",
+                                    }
+                                ],
+                                "description": "",
+                                "node_name": "testnode",
+                            }
+                        ],
+                        "subshelves": [],
+                        "name": "testshelf",
+                        "description": "Test shelf",
+                    }
+                ]
+            },
+            "edges": [],
+        },
+        view={},
+        meta={},
+        external_workers={},
+    )
 
-    async def test_set_io_value(self):
-        self.worker.set_io_value(self.node1.uuid, "a", 2, set_default=True)
-        await asyncio.sleep(0.1)  # let the nodes trigger
-        v = self.worker.get_io_value(self.node1.uuid, "out")
-        self.assertEqual(v, 2)
+    assert worker_case.nodespace_loop is not None
+    assert worker_case.loop_manager is not None
+    assert worker_case.loop_manager.running
+    assert worker_case.nodespace_loop._manager is not None
 
-    async def test_update_node_view(self):
-        self.worker.update_node_view(
-            self.node1.uuid,
-            NodeViewState(
-                pos=(10, 10),
-                size=(100, 100),
-            ),
-        )
-        vs = self.worker.view_state()
-        exp_nodes = {}
-        exp_nodes[self.node1.uuid] = {
-            "pos": (10, 10),
-            "size": (100, 100),
-        }
-        exp_nodes[self.node2.uuid] = {
-            "pos": (0, 0),
-            "size": (200, 250),
-        }
+    await worker_case.load(data)
 
-        self.assertEqual(vs["nodes"], exp_nodes)
+    mutated = deepcopy(data)
+    mutated["meta"]["id"] = "abc"
+    with pytest.raises(ValueError):
+        await worker_case.load(mutated)
 
-    async def test_add_package_dependency(self):
-        await self.worker.add_package_dependency("funcnodes-basic")
-        self.assertIn("funcnodes-basic", self.worker._package_dependencies)
+    mutated = deepcopy(data)
+    mutated["meta"]["id"] = None
+    await worker_case.load(mutated)
 
-    async def test_upload(self):
-        data = b"hello"
-        self.worker.upload(data, "test.txt")
+    mutated = deepcopy(data)
+    mutated["meta"]["id"] = "a" * 32
+    await worker_case.load(mutated)
 
-        self.assertTrue(
-            os.path.exists(os.path.join(self.worker.files_path, "test.txt"))
-        )
-        with self.assertRaises(ValueError):
-            self.worker.upload(data, "../test.txt")
+    worker_case.stop()
+    async with asyncio.timeout(5):
+        await run_task
+
+
+@funcnodes_test
+async def test_get_io_value(interacting_worker):
+    worker, node1, node2 = interacting_worker
+    nodes = worker.get_nodes()
+    assert len(nodes) == 2
+    value = worker.get_io_value(node1.uuid, "out")
+    assert value == 1
+
+
+@funcnodes_test
+async def test_set_io_value(interacting_worker):
+    worker, node1, _ = interacting_worker
+    worker.set_io_value(node1.uuid, "a", 2, set_default=True)
+    await asyncio.sleep(0.1)
+    value = worker.get_io_value(node1.uuid, "out")
+    assert value == 2
+
+
+@funcnodes_test
+async def test_update_node_view(interacting_worker):
+    worker, node1, node2 = interacting_worker
+    worker.update_node_view(
+        node1.uuid,
+        NodeViewState(
+            pos=(10, 10),
+            size=(100, 100),
+        ),
+    )
+    view_state = worker.view_state()
+    expected_nodes = {
+        node1.uuid: {"pos": (10, 10), "size": (100, 100)},
+        node2.uuid: {"pos": (0, 0), "size": (200, 250)},
+    }
+    assert view_state["nodes"] == expected_nodes
+
+
+@funcnodes_test
+async def test_add_package_dependency(interacting_worker):
+    worker, _, _ = interacting_worker
+    await worker.add_package_dependency("funcnodes-basic")
+    assert "funcnodes-basic" in worker._package_dependencies
+
+
+@funcnodes_test
+async def test_upload(interacting_worker):
+    worker, _, _ = interacting_worker
+    data = b"hello"
+    worker.upload(data, "test.txt")
+    assert os.path.exists(os.path.join(worker.files_path, "test.txt"))
+    with pytest.raises(ValueError):
+        worker.upload(data, "../test.txt")
+
+
+class _CountingShelfConfig(ExternalWorkerConfig):
+    marker: int = 0
+
+
+class CountingShelfWorker(FuncNodesExternalWorker):
+    NODECLASSID = "test_counting_shelf_worker"
+    config_cls = _CountingShelfConfig
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.shelf_calls = 0
+        self.last_marker = 0
+        super().__init__(*args, **kwargs)
+        self.last_marker = self.config.marker
+
+    async def loop(self):
+        await asyncio.sleep(0.01)
+
+    def post_config_update(self):
+        self.last_marker = self.config.marker
+        self.emit("nodes_update")
+
+    def get_nodeshelf(self):
+        self.shelf_calls += 1
+        return None
+
+
+class _SecretiveConfig(ExternalWorkerConfig):
+    EXPORT_EXCLUDE_FIELDS: ClassVar[set[str]] = {"class_hidden"}
+
+    class_hidden: str = "secret-from-class"
+    field_hidden: str = Field(
+        default="secret-from-field", json_schema_extra={"export": False}
+    )
+    visible: str = "visible"
+
+
+class SecretiveWorker(FuncNodesExternalWorker):
+    NODECLASSID = "test_secretive_worker"
+    config_cls = _SecretiveConfig
+
+    def get_nodeshelf(self):
+        return None
+
+
+@funcnodes_test
+async def test_export_worker_excludes_external_worker_sensitive_fields(
+    running_test_worker: _TestWorkerClass,
+):
+    external_worker = running_test_worker
+    worker_instance = external_worker.add_local_worker(
+        SecretiveWorker, "secretive-worker"
+    )
+    external_worker.update_external_worker(
+        worker_instance.uuid,
+        SecretiveWorker.NODECLASSID,
+        config={
+            "class_hidden": "top-secret",
+            "field_hidden": "token-123",
+            "visible": "fine",
+        },
+    )
+    await asyncio.sleep(0.2)
+
+    full_state = external_worker.get_save_state()
+    assert len(full_state["external_workers"][SecretiveWorker.NODECLASSID]) == 1, (
+        full_state
+    )
+    saved_config = full_state["external_workers"][SecretiveWorker.NODECLASSID][0][
+        "config"
+    ]
+    assert saved_config["class_hidden"] == "top-secret"
+    assert saved_config["field_hidden"] == "token-123"
+    assert saved_config["visible"] == "fine"
+
+    exported = external_worker.export_worker()
+    with zipfile.ZipFile(io.BytesIO(exported), "r") as zf:
+        exported_state = json.loads(zf.read("state").decode("utf-8"))
+
+    exported_config = exported_state["external_workers"][SecretiveWorker.NODECLASSID][
+        0
+    ]["config"]
+    assert "class_hidden" not in exported_config
+    assert "field_hidden" not in exported_config
+    assert exported_config["visible"] == "fine"
+
+
+@funcnodes_test
+async def test_update_external_worker_refreshes_shelf_without_event(
+    worker_instance: _TestWorkerClass,
+):
+    ex_worker_instance = worker_instance.add_local_worker(
+        CountingShelfWorker, "counting-shelf-worker"
+    )
+    assert ex_worker_instance.shelf_calls == 1
+
+    worker_instance.update_external_worker(
+        ex_worker_instance.uuid,
+        CountingShelfWorker.NODECLASSID,
+        config={"marker": 1},
+    )
+
+    await asyncio.sleep(0.2)
+
+    assert ex_worker_instance.shelf_calls == 2

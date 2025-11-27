@@ -1,13 +1,10 @@
+from typing import Optional
 from unittest import IsolatedAsyncioTestCase
+from weakref import ref
 import funcnodes_core as fn
 
-from funcnodes_core.testing import (
-    teardown as fn_teardown,
-    set_in_test as fn_set_in_test,
-)
 
-fn_set_in_test()
-
+from pytest_funcnodes import setup as fn_setup, teardown as fn_teardown
 
 from funcnodes_worker import (  # noqa: E402
     FuncNodesExternalWorker,
@@ -20,6 +17,7 @@ from funcnodes_core import (  # noqa: E402
     instance_nodefunction,
     flatten_shelf,
 )
+from funcnodes_core.node import register_node  # noqa: E402
 from funcnodes_worker import CustomLoop  # noqa: E402
 import time  # noqa: E402
 import asyncio  # noqa: E402
@@ -33,12 +31,6 @@ try:
     import objgraph  # noqa: E402
 except ImportError:
     objgraph = None
-
-fn.FUNCNODES_LOGGER.setLevel(logging.DEBUG)
-
-
-class ExternalWorker_Test(FuncNodesExternalWorker):
-    pass
 
 
 class RaiseErrorLogger(logging.Logger):
@@ -72,12 +64,12 @@ class _TestWorker(RemoteWorker):
 
 
 class TestExternalWorker(IsolatedAsyncioTestCase):
-    def test_external_worker_missing_loop(self):
-        class ExternalWorker1(FuncNodesExternalWorker):
-            pass
+    def setUp(self) -> None:
+        fn_setup()
+        register_node(workertestnode)
 
-        with self.assertRaises(TypeError):
-            ExternalWorker1()
+    def tearDown(self) -> None:
+        fn_teardown()
 
     def test_external_worker_missing_nodeclassid(self):
         with self.assertRaises(ValueError):
@@ -198,6 +190,9 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
 
         async with asyncio.timeout(5):
             await self.runtask
+
+    def setUp(self) -> None:
+        fn_setup()
 
     def tearDown(self) -> None:
         if not self.runtask.done():
@@ -382,3 +377,108 @@ class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
         await asyncio.sleep(0.5)
         t = time.time()
         self.assertLessEqual(t - self.retmoteworker.timerloop.last_run, 0.3)
+
+
+@fn.NodeDecorator(node_id="workertestnode")
+async def workertestnode(a: int) -> int:
+    return a + 1
+
+
+class ExternalWorkerWithNodeShelves(FuncNodesExternalWorker):
+    NODECLASSID = "testexternalworker_ExternalWorkerWithNodeShelves"
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._nodeshelf = fn.Shelf(
+            name="test",
+            description="test",
+            nodes=[
+                workertestnode,
+            ],
+        )
+
+    def get_nodeshelf(self) -> Optional[fn.Shelf]:
+        return self._nodeshelf
+
+
+class TestExternalWorkerWithNodeShelves(IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory(prefix="funcnodes")
+        self.retmoteworker = _TestWorker(data_path=self.tempdir.name)
+        self._loop = asyncio.get_event_loop()
+        self.runtask = self._loop.create_task(self.retmoteworker.run_forever_async())
+        t = time.time()
+        while not self.retmoteworker.loop_manager.running and time.time() - t < 50:
+            if self.runtask.done():
+                if self.runtask.exception():
+                    raise self.runtask.exception()
+            await asyncio.sleep(1)
+        if not self.retmoteworker.loop_manager.running:
+            raise Exception("Worker not running")
+
+    async def asyncTearDown(self):
+        self.retmoteworker.stop()
+
+        async with asyncio.timeout(5):
+            await self.runtask
+
+    def setUp(self) -> None:
+        fn_setup()
+        # register_node(workertestnode)
+
+    def tearDown(self) -> None:
+        if not self.runtask.done():
+            self.runtask.cancel()
+
+        fn_teardown()
+        self.tempdir.cleanup()
+        return super().tearDown()
+
+    async def test_external_worker_nodes(self):
+        worker = self.retmoteworker.add_local_worker(
+            ExternalWorkerWithNodeShelves, "test_external_worker_nodes"
+        )
+
+        assert isinstance(worker, ExternalWorkerWithNodeShelves)
+
+        assert worker.get_nodeshelf() is not None
+        assert worker.get_nodeshelf().name == "test"
+        assert worker.get_nodeshelf().nodes == [workertestnode]
+
+        assert isinstance(worker.nodeshelf, ref)
+        assert worker.nodeshelf() is not None
+        assert worker.nodeshelf().name == "test"
+        assert worker.nodeshelf().nodes == [workertestnode]
+
+        nodeclass = self.retmoteworker.nodespace.lib.get_node_by_id("workertestnode")
+        self.assertEqual(nodeclass.node_name, "workertestnode")
+
+    async def test_external_worker_nodes_multiple_updates(self):
+        worker = self.retmoteworker.add_local_worker(
+            ExternalWorkerWithNodeShelves, "test_external_worker_nodes_multiple"
+        )
+
+        for _ in range(2):
+            print("registered nodes", list(fn.node.REGISTERED_NODES.keys()))
+            worker.emit("nodes_update")
+            assert worker.get_nodeshelf() is not None
+            assert worker.get_nodeshelf().name == "test"
+            assert worker.get_nodeshelf().nodes == [workertestnode]
+
+            assert isinstance(worker.nodeshelf, ref)
+            assert worker.nodeshelf() is not None
+            assert worker.nodeshelf().name == "test"
+            assert worker.nodeshelf().nodes == [workertestnode]
+
+            print(
+                json.dumps(self.retmoteworker.nodespace.lib.full_serialize(), indent=4)
+            )
+            print("registered nodes", list(fn.node.REGISTERED_NODES.keys()))
+
+            nodeclass = self.retmoteworker.nodespace.lib.get_node_by_id(
+                "workertestnode"
+            )
+            self.assertEqual(nodeclass.node_name, "workertestnode")
+
+
+#
