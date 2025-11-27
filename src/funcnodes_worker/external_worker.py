@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Dict, List, TypedDict, Union, Any, Optional, Type
+from pathlib import Path
+from typing import Dict, List, TypedDict, Union, Any, Optional, Type, ClassVar
 from funcnodes_worker.loop import CustomLoop
 from funcnodes_core import (
     NodeClassMixin,
@@ -19,6 +20,27 @@ class ExternalWorkerConfig(BaseModel):
     A class that represents the configuration of an external worker.
     """
 
+    EXPORT_EXCLUDE_FIELDS: ClassVar[set[str]] = set()
+
+    @classmethod
+    def export_exclude_fields(cls) -> set[str]:
+        """Returns field names that should be removed when exporting config."""
+        excluded = set(getattr(cls, "EXPORT_EXCLUDE_FIELDS", set()))
+        fields = getattr(cls, "model_fields", None) or getattr(cls, "__fields__", {})
+        for name, field in fields.items():
+            extra = getattr(field, "json_schema_extra", None)
+            if extra is None and hasattr(field, "field_info"):
+                extra = getattr(field.field_info, "extra", {}) or getattr(
+                    field.field_info, "json_schema_extra", None
+                )
+            if extra and extra.get("export") is False:
+                excluded.add(name)
+        return excluded
+
+    def exportable_dict(self) -> dict:
+        """Serialize config without export-excluded fields."""
+        return self.model_dump(mode="json", exclude=self.export_exclude_fields())
+
 
 class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
     """
@@ -34,6 +56,7 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
         self,
         workerid,
         config: Optional[Union[ExternalWorkerConfig, Dict[str, Any]]] = None,
+        data_path: Optional[str] = None,
     ) -> None:
         """
         Initializes the FuncNodesExternalWorker class.
@@ -45,8 +68,9 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
             delay=1,
         )
         self.uuid = workerid
-
+        self._nodeshelf: Optional[Shelf] = None
         self._config = self.config_cls()
+        self._data_path: Optional[Path] = Path(data_path) if data_path else None
         try:
             self.update_config(config)
         except Exception:
@@ -57,6 +81,23 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
             )
         FuncNodesExternalWorker.RUNNING_WORKERS[self.NODECLASSID][self.uuid] = self
 
+    @property
+    def data_path(self) -> Optional[Path]:
+        if self._data_path is None:
+            return None
+        if not self._data_path.exists():
+            self._data_path.mkdir(parents=True, exist_ok=True)
+        return self._data_path
+
+    @data_path.setter
+    def data_path(self, data_path: Optional[Path]):
+        if data_path is None:
+            self._data_path = None
+        else:
+            self._data_path = data_path.resolve()
+        if not self._data_path.exists():
+            self._data_path.mkdir(parents=True, exist_ok=True)
+
     def update_config(
         self, config: Optional[Union[ExternalWorkerConfig, Dict[str, Any]]] = None
     ):
@@ -64,7 +105,10 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
             return
         preconfig = config if isinstance(config, dict) else config.model_dump()
         self._config = self.config_cls(**{**self._config.model_dump(), **preconfig})
-        self.post_config_update()
+        try:
+            self.post_config_update()
+        except Exception as e:
+            FUNCNODES_LOGGER.exception(e)
         FUNCNODES_LOGGER.info(f"config updated for worker {self.uuid}: {self._config}")
         return self._config
 
@@ -81,20 +125,24 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
     @property
     def nodeshelf(self) -> Optional[ref[Shelf]]:
         ns = self.get_nodeshelf()
-        print(f"nodeshelf: {ns}")
         if ns is None:
             return None
-        if ns.name != self.uuid:
-            ns = Shelf(
-                name=self.uuid,
-                description=ns.description,
-                nodes=list(ns.nodes),
-                subshelves=list(ns.subshelves),
-            )
-        return ref(ns)
+        return ref(ns)  #
+
+    @nodeshelf.setter
+    def nodeshelf(self, ns: Optional[Shelf]):
+        self.set_nodeshelf(ns)
 
     def get_nodeshelf(self) -> Optional[Shelf]:
-        return None
+        return self._nodeshelf
+
+    def set_nodeshelf(self, ns: Optional[Shelf]):
+        if ns is None:
+            self._nodeshelf = ns
+        if not isinstance(ns, Shelf):
+            raise ValueError("ns must be a Shelf or None")
+        self._nodeshelf = ns
+        self.emit("nodes_update")
 
     @classmethod
     def running_instances(cls) -> List[FuncNodesExternalWorker]:
@@ -124,17 +172,25 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
         self.cleanup()
         await super().stop()
 
-    def serialize(self) -> FuncNodesExternalWorkerJson:
+    def serialize(self, export: bool = False) -> FuncNodesExternalWorkerJson:
         """
         Serializes the FuncNodesExternalWorker class.
         """
+        cfg = (
+            self.config.exportable_dict()
+            if export and hasattr(self.config, "exportable_dict")
+            else self.config.model_dump(mode="json")
+        )
         return FuncNodesExternalWorkerJson(
             uuid=self.uuid,
             nodeclassid=self.NODECLASSID,
             running=self.running,
             name=self.name,
-            config=self.config.model_dump(mode="json"),
+            config=cfg,
         )
+
+    async def loop(self):
+        pass
 
 
 class FuncNodesExternalWorkerJson(TypedDict):
@@ -146,6 +202,7 @@ class FuncNodesExternalWorkerJson(TypedDict):
     nodeclassid: str
     running: bool
     name: str
+    config: dict
 
 
 def encode_external_worker(obj, preview=False):  # noqa: F841

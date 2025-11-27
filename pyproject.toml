@@ -8,9 +8,10 @@ authors = [{name = "Julian Kimmig", email = "julian.kimmig@linkdlab.de"}]
 requires-python = ">=3.11"
 dependencies = [
  "asynctoolkit>=0.1.1",
- "funcnodes-core>=1.0.1",
+ "funcnodes-core>=2.0.0a3",
  "packaging>=24.2",
  "pip>=25.0.1",
+ "pydantic>=2.12.4",
  "python-slugify>=8.0.4",
 ]
 
@@ -25,6 +26,7 @@ dev = [
     "funcnodes-worker[all]",
     "funcnodes>=1.0.0",
     "objgraph>=3.6.2",
+    "pytest-funcnodes>=0.2.0",
 ]
 
 [project.optional-dependencies]
