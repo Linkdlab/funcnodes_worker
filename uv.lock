@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = ">=3.11"
 resolution-markers = [
     "sys_platform != 'emscripten'",
@@ -429,7 +429,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes-core"
-version = "2.0.0a3"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill" },
@@ -439,9 +439,9 @@ dependencies = [
     { name = "setuptools" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/1a/02/683c1e20132b9d865b747ada8829c279c759b15ac25d8e289a797515e61a/funcnodes_core-2.0.0a3.tar.gz", hash = "sha256:1c8250d7cfb81a3b70bf47e552da5ea4e22dbbbcc11c0f439fbc56046aeb6108", size = 189872, upload-time = "2025-11-27T11:11:28.071Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/67/44/6ddee77de599ede9fe598106bec950790838103370fe812efe0548587d6b/funcnodes_core-2.0.0.tar.gz", hash = "sha256:73d5a9731b2d30ad98fe9c47d809de8a324dafcdbbc3701c86194c0d1b535b52", size = 190475, upload-time = "2025-11-27T18:51:11.954Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/ca/ca0ba069573e33d4831ab9789c7f90978959a8265666063dd0b69db5fac6/funcnodes_core-2.0.0a3-py3-none-any.whl", hash = "sha256:11ab6c16eba70a973061f291f1eb5ca4b66ecda71ea60d739f5131a4b96bde91", size = 91647, upload-time = "2025-11-27T11:11:26.728Z" },
+    { url = "https://files.pythonhosted.org/packages/49/bf/5f6652700e98a856e31bd80b608ca89c8f2b558c2a40c980c3cb39eefc16/funcnodes_core-2.0.0-py3-none-any.whl", hash = "sha256:6e42ef5065162adf09f3ffe2fff0fc5d1397235e98c670bdc8bf031bd0883e8d", size = 91624, upload-time = "2025-11-27T18:51:10.504Z" },
 ]
 
 [[package]]
@@ -474,7 +474,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes-worker"
-version = "1.2.1"
+version = "1.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "asynctoolkit" },
@@ -524,7 +524,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'http'" },
     { name = "aiohttp-cors", marker = "extra == 'http'" },
     { name = "asynctoolkit", specifier = ">=0.1.1" },
-    { name = "funcnodes-core", specifier = ">=2.0.0a3" },
+    { name = "funcnodes-core", specifier = ">=2.0.0" },
     { name = "funcnodes-worker", extras = ["venv", "http", "subprocess-monitor"], marker = "extra == 'all'" },
     { name = "packaging", specifier = ">=24.2" },
     { name = "pip", specifier = ">=25.0.1" },

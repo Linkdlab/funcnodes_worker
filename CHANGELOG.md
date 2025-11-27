@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0 (2025-11-27)
+
+### Feat
+
+- **external-worker**: support exportable configs and nodeshelf updates
+- **websocket**: implement graceful client connection closure and enhance message enqueue handling
+- **worker**: enhance FuncNodesExternalWorker with nodeshelf property and logging for configuration updates
+- **external_worker**: introduce ExternalWorkerConfig for improved configuration management and update FuncNodesExternalWorker to utilize it
+
+### Fix
+
+- **worker**: align external worker shelf updates and export
+- **loop**: handle closed or missing event loop for tasks
+- **tests**: correct asyncio_default_fixture_loop_scope format in pytest configuration
+
 ## 1.2.1 (2025-11-06)
 
 ### Fix
