@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from logging.handlers import RotatingFileHandler
+import gc
 from functools import wraps
 from typing import (
     List,
@@ -199,7 +199,7 @@ class LocalWorkerLookupLoop(CustomLoop):
             p = self._path
 
         if not p.exists():
-            os.mkdir(p)
+            p.mkdir(parents=True, exist_ok=True)
 
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
@@ -279,7 +279,10 @@ class LocalWorkerLookupLoop(CustomLoop):
         self._client.logger.info(
             f"starting local worker {worker_class.NODECLASSID} {worker_id}"
         )
-        worker_instance: FuncNodesExternalWorker = worker_class(workerid=worker_id)
+        worker_instance: FuncNodesExternalWorker = worker_class(
+            workerid=worker_id,
+            data_path=self._client.data_path / "external_workers" / worker_id,
+        )
 
         worker_instance.on(
             "stopping",
@@ -287,41 +290,47 @@ class LocalWorkerLookupLoop(CustomLoop):
         )
         self._client.loop_manager.add_loop(worker_instance)
 
-        self._client.nodespace.lib.add_nodes(
-            worker_instance.get_all_nodeclasses(),
-            [EXTERNALWORKERLIB, worker_instance.uuid],
-        )
-        worker_nodeshelf = worker_instance.nodeshelf
-        if worker_nodeshelf is not None:
-            self._client.nodespace.lib.add_external_shelf(
-                worker_instance.nodeshelf, [EXTERNALWORKERLIB]
-            )
-
         def _inner_update_worker_shelf(*args, **kwargs):
             self._update_worker_shelf(worker_instance)
 
         worker_instance.on("nodes_update", _inner_update_worker_shelf)
+
+        self._update_worker_shelf(worker_instance)
 
         self._client.request_save()
 
         return worker_instance
 
     def _update_worker_shelf(self, worker_instance: FuncNodesExternalWorker):
-        self._client.nodespace.lib.remove_shelf_path(
-            [EXTERNALWORKERLIB, worker_instance.uuid]
-        )
+        shelf_path = [EXTERNALWORKERLIB, worker_instance.uuid]
         try:
-            self._client.nodespace.lib.remove_shelf_path([worker_instance.uuid])
+            self._client.nodespace.lib.remove_shelf_path(shelf_path)
         except ValueError:
             pass
+
+        worker_nodeshelf_ref = worker_instance.nodeshelf
+        worker_nodeshelf_obj = (
+            worker_nodeshelf_ref() if worker_nodeshelf_ref is not None else None
+        )
+        if worker_nodeshelf_obj is not None:
+            try:
+                self._client.nodespace.lib.remove_shelf_path(
+                    [*shelf_path, worker_nodeshelf_obj.name]
+                )
+            except ValueError:
+                pass
+        # perform a gc collect to remove any references to the old nodeshelf
+        gc.collect()
+
         self._client.nodespace.lib.add_nodes(
             worker_instance.get_all_nodeclasses(),
-            [EXTERNALWORKERLIB, worker_instance.uuid],
+            shelf_path,
         )
-        worker_nodeshelf = worker_instance.nodeshelf
-        if worker_nodeshelf is not None:
-            self._client.nodespace.lib.add_external_shelf(
-                worker_nodeshelf, [EXTERNALWORKERLIB]
+        # Reuse worker_nodeshelf_obj instead of accessing the property again
+        # to avoid calling get_nodeshelf() twice
+        if worker_nodeshelf_obj is not None:
+            self._client.nodespace.lib.add_subshelf_weak(
+                worker_nodeshelf_ref, shelf_path
             )
 
     def start_local_worker_by_id(self, worker_id: str):
@@ -623,13 +632,13 @@ class Worker(ABC):
             self.logger.setLevel("DEBUG")
         self.logger.info("Init Worker %s", self.__class__.__name__)
 
-        self.logger.addHandler(
-            RotatingFileHandler(
-                self.data_path / "worker.log",
-                maxBytes=100000,
-                backupCount=5,
-            )
-        )
+        # self.logger.addHandler(
+        #     RotatingFileHandler(
+        #         self.data_path / "worker.log",
+        #         maxBytes=100000,
+        #         backupCount=5,
+        #     )
+        # )
 
         self._exposed_methods = get_exposed_methods(self)
         self._progress_state: ProgressState = {
@@ -929,9 +938,9 @@ class Worker(ABC):
             )
             zip_file.writestr(
                 "state",
-                json.dumps(self.get_save_state(), cls=JSONEncoder, indent=2).encode(
-                    "utf-8"
-                ),
+                json.dumps(
+                    self.get_save_state(export=True), cls=JSONEncoder, indent=2
+                ).encode("utf-8"),
             )
             if self.venvmanager:
                 tomlpath = self.data_path / "pyproject.toml"
@@ -1083,9 +1092,12 @@ class Worker(ABC):
             raise ValueError(f"Worker {worker_id} not found")
         if name is not None:
             worker_instance.name = name
+
         if config is not None:
             worker_instance.update_config(config)
-
+            # Note: _update_worker_shelf will be called automatically via the
+            # "nodes_update" event handler registered in start_local_worker,
+            # so we don't need to call it directly here.
         self.loop_manager.async_call(self.worker_event("external_worker_update"))
 
     @exposed_method()
@@ -1177,7 +1189,7 @@ class Worker(ABC):
         return filename
 
     @exposed_method()
-    def get_save_state(self) -> WorkerState:
+    def get_save_state(self, export: bool = False) -> WorkerState:
         ws = self.view_state()
         ws.pop("nodes", None)
         data: WorkerState = {
@@ -1186,7 +1198,7 @@ class Worker(ABC):
             "meta": self.get_meta(),
             "external_workers": {
                 workerclass.NODECLASSID: [
-                    w_instance.serialize()
+                    w_instance.serialize(export=export)
                     for w_instance in workerclass.running_instances()
                 ]
                 for workerclass in self.local_worker_lookup_loop.worker_classes
