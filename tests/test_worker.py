@@ -44,17 +44,21 @@ def worker_class():
 
 
 @pytest.fixture
-def worker_kwargs():
-    return {"uuid": "testuuid"}
+def worker_kwargs(request: pytest.FixtureRequest):
+    return {"uuid": request.node.name}
 
 
 @pytest.fixture
-async def worker_case(worker_class: Type[_TestWorkerClass], tmp_path: Union[Path, str]):
+async def worker_case(
+    worker_class: Type[_TestWorkerClass],
+    tmp_path: Union[Path, str],
+    request: pytest.FixtureRequest,
+):
     worker = worker_class(
         data_path=tmp_path,
         default_nodes=[testshelf],
         debug=True,
-        uuid="TestWorkerCase_testuuid",
+        uuid=f"TestWorkerCase_{request.node.name}",
     )
     worker.write_config()
     try:
@@ -80,11 +84,13 @@ def worker_instance(
     worker_class: Type[_TestWorkerClass],
     # tmp_path:Union[Path, str],
     funcnodes_test_setup_teardown,
+    # get test name
+    request: pytest.FixtureRequest,
 ):
     worker = worker_class(
         # data_path=tmp_path,
         default_nodes=[testshelf],
-        uuid="TestExternalWorkerUpdate",
+        uuid=request.node.name,
     )
     assert len(list(worker.data_path.parent.iterdir())) == 1, (
         f"data_path {worker.data_path.parent} is not empty, but {list(worker.data_path.parent.iterdir())}"
@@ -120,13 +126,10 @@ def create_test_node(worker):
 @funcnodes_test
 def test_worker_initialization(worker_class, worker_kwargs):
     worker = worker_class(**worker_kwargs)
-    try:
-        assert isinstance(worker, worker_class)
-    finally:
-        worker.stop()
+    assert isinstance(worker, worker_class)
 
 
-@funcnodes_test
+@funcnodes_test(no_prefix=True)
 def test_with_default_nodes(worker_class, worker_kwargs):
     worker = worker_class(**worker_kwargs, default_nodes=[testshelf])
     try:
@@ -135,7 +138,7 @@ def test_with_default_nodes(worker_class, worker_kwargs):
         worker.stop()
 
 
-@funcnodes_test
+@funcnodes_test(no_prefix=True)
 def test_with_debug(worker_class: Type[_TestWorkerClass], worker_kwargs):
     worker = worker_class(**worker_kwargs, debug=True)
     try:
@@ -214,7 +217,7 @@ def test_initandrun(running_test_worker: _TestWorkerClass):
     log_contents = None
     if worker_p_file.exists():
         assert f"funcnodes.{worker.uuid()}.log" in os.listdir(workerdir), (
-            f"funcnodes.testuuid.log not found in {workerdir}"
+            f"funcnodes.{worker.uuid()}.log not found in {workerdir}"
         )
         with open(workerdir / f"funcnodes.{worker.uuid()}.log", "r") as logfile:
             log_contents = logfile.read()
