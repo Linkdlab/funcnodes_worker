@@ -7,9 +7,6 @@ from funcnodes_worker import SocketWorker
 from pytest_funcnodes import funcnodes_test
 
 
-pytestmark = pytest.mark.asyncio
-
-
 @pytest.fixture
 async def worker():
     worker = SocketWorker(host="127.0.0.1", port=9382)
