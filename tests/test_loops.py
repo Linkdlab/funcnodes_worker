@@ -1,13 +1,18 @@
-import unittest
 import asyncio
 import logging
+from contextlib import suppress
 from unittest.mock import AsyncMock, Mock
+
+import pytest
+
 from funcnodes_worker.loop import (
     CustomLoop,
     LoopManager,
 )
 
-from pytest_funcnodes import setup as fn_setup, teardown as fn_teardown
+from pytest_funcnodes import funcnodes_test
+
+pytestmark = pytest.mark.asyncio
 
 
 class _TestLoop(CustomLoop):
@@ -15,132 +20,156 @@ class _TestLoop(CustomLoop):
         pass
 
 
-class TestCustomLoop(unittest.IsolatedAsyncioTestCase):
-    def setUp(self) -> None:
-        fn_setup()
-
-    def tearDown(self) -> None:
-        fn_teardown()
-
-    async def asyncSetUp(self):
-        self.logger = logging.getLogger("TestLogger")
-        self.loop = _TestLoop(delay=0.2, logger=self.logger)
-        self.loop.loop = AsyncMock()
-
-    async def test_initial_state(self):
-        self.assertFalse(self.loop.running)
-        self.assertFalse(self.loop.stopped)
-        self.assertIsNone(self.loop.manager)
-
-    async def test_manager_assignment(self):
-        mock_manager = Mock()
-        self.loop.manager = mock_manager
-        self.assertEqual(self.loop.manager, mock_manager)
-
-    async def test_manager_reassignment_fails(self):
-        mock_manager = Mock()
-        self.loop.manager = mock_manager
-        with self.assertRaises(ValueError):
-            self.loop.manager = Mock()
-
-    async def test_stop(self):
-        self.loop._running = True
-        await self.loop.stop()
-        self.assertFalse(self.loop.running)
-        self.assertTrue(self.loop.stopped)
-
-    async def test_pause(self):
-        class CountingLoop(CustomLoop):
-            counter = 0
-
-            async def loop(self):
-                self.counter += 1
-
-        loop = CountingLoop()
-        asyncio.create_task(loop.continuous_run())
-        await asyncio.sleep(0.3)
-        self.assertGreater(loop.counter, 1)
-        loop.pause()
-        fixed_counter = loop.counter
-        await asyncio.sleep(0.3)
-        self.assertEqual(loop.counter, fixed_counter)
-        loop.resume()
-        await asyncio.sleep(0.3)
-        self.assertGreater(loop.counter, fixed_counter)
-        loop.pause()
-        fixed_counter = loop.counter
-        await asyncio.sleep(0.3)
-        self.assertEqual(loop.counter, fixed_counter)
-        loop.resume_in(1)
-        await asyncio.sleep(0.5)
-        self.assertEqual(loop.counter, fixed_counter)
-        await asyncio.sleep(1)
-        self.assertGreater(loop.counter, fixed_counter)
-
-    async def test_continuous_run_calls_loop(self):
-        self.loop._running = True
-        task = asyncio.create_task(self.loop.continuous_run())
-        await asyncio.sleep(0.3)  # Let it run for a while
-        self.loop._running = False  # Stop the loop
-        task.cancel()
-        self.loop.loop.assert_called()
+@pytest.fixture
+def logger():
+    return logging.getLogger("TestLogger")
 
 
-class TestLoopManager(unittest.IsolatedAsyncioTestCase):
-    def setUp(self) -> None:
-        fn_setup()
-
-    def tearDown(self) -> None:
-        fn_teardown()
-
-    async def asyncSetUp(self):
-        self.worker = Mock()
-        self.worker.logger = logging.getLogger("TestWorkerLogger")
-        self.manager = LoopManager(self.worker)
-        self.custom_loop = AsyncMock(spec=CustomLoop)
-
-    async def test_add_loop_while_stopped(self):
-        self.manager.add_loop(self.custom_loop)
-        self.assertIn(self.custom_loop, self.manager._loops_to_add)
-
-    async def test_add_loop_while_running(self):
-        self.manager._running = True
-        task = self.manager.add_loop(self.custom_loop)
-        self.assertIn(self.custom_loop, self.manager._loops)
-        self.assertIsInstance(task, asyncio.Task)
-
-    async def test_remove_loop(self):
-        self.manager._loops.append(self.custom_loop)
-        self.manager._loop_tasks.append(asyncio.create_task(asyncio.sleep(1)))
-        self.manager.remove_loop(self.custom_loop)
-        self.assertNotIn(self.custom_loop, self.manager._loops)
-
-    async def test_run_forever_async(self):
-        self.manager._running = True
-        task = asyncio.create_task(self.manager.run_forever_async())
-        await asyncio.sleep(0.5)
-        self.manager._running = False
-        await asyncio.sleep(0.1)
-        task.cancel()
-
-    async def test_stop(self):
-        self.manager._running = True
-        self.manager.stop()
-        self.assertFalse(self.manager.running)
-        self.assertEqual(len(self.manager._loops), 0)
-
-    async def test_run_forever_threaded(self):
-        self.manager._running = True
-        import threading
-
-        thread = threading.Thread(target=self.manager.run_forever)
-        thread.start()
-        await asyncio.sleep(1)
-        self.manager.stop()
-        await asyncio.sleep(0.1)
-        thread.join()
-        self.assertFalse(self.manager.running)
+@pytest.fixture
+def test_loop(logger):
+    loop = _TestLoop(delay=0.2, logger=logger)
+    loop.loop = AsyncMock()
+    return loop
 
 
-if __name__ == "__main__":
-    unittest.main()
+@funcnodes_test(no_prefix=True)
+async def test_initial_state(test_loop):
+    assert not test_loop.running
+    assert not test_loop.stopped
+    assert test_loop.manager is None
+
+
+@funcnodes_test(no_prefix=True)
+async def test_manager_assignment(test_loop):
+    mock_manager = Mock()
+    test_loop.manager = mock_manager
+    assert test_loop.manager == mock_manager
+
+
+@funcnodes_test(no_prefix=True)
+async def test_manager_reassignment_fails(test_loop):
+    mock_manager = Mock()
+    test_loop.manager = mock_manager
+    with pytest.raises(ValueError):
+        test_loop.manager = Mock()
+
+
+@funcnodes_test(no_prefix=True)
+async def test_stop_loop(test_loop):
+    test_loop._running = True
+    await test_loop.stop()
+    assert not test_loop.running
+    assert test_loop.stopped
+
+
+@funcnodes_test(no_prefix=True)
+async def test_pause():
+    class CountingLoop(CustomLoop):
+        counter = 0
+
+        async def loop(self):
+            self.counter += 1
+
+    loop = CountingLoop()
+    asyncio.create_task(loop.continuous_run())
+    await asyncio.sleep(0.3)
+    assert loop.counter > 1
+    loop.pause()
+    fixed_counter = loop.counter
+    await asyncio.sleep(0.3)
+    assert loop.counter == fixed_counter
+    loop.resume()
+    await asyncio.sleep(0.3)
+    assert loop.counter > fixed_counter
+    loop.pause()
+    fixed_counter = loop.counter
+    await asyncio.sleep(0.3)
+    assert loop.counter == fixed_counter
+    loop.resume_in(1)
+    await asyncio.sleep(0.5)
+    assert loop.counter == fixed_counter
+    await asyncio.sleep(1)
+    assert loop.counter > fixed_counter
+
+
+@funcnodes_test(no_prefix=True)
+async def test_continuous_run_calls_loop(test_loop):
+    test_loop._running = True
+    task = asyncio.create_task(test_loop.continuous_run())
+    await asyncio.sleep(0.3)
+    test_loop._running = False
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+    test_loop.loop.assert_called()
+
+
+@pytest.fixture
+def loop_manager():
+    worker = Mock()
+    worker.logger = logging.getLogger("TestWorkerLogger")
+    return LoopManager(worker)
+
+
+@pytest.fixture
+def custom_loop():
+    return AsyncMock(spec=CustomLoop)
+
+
+@funcnodes_test(no_prefix=True)
+async def test_add_loop_while_stopped(loop_manager, custom_loop):
+    loop_manager.add_loop(custom_loop)
+    assert custom_loop in loop_manager._loops_to_add
+
+
+@funcnodes_test(no_prefix=True)
+async def test_add_loop_while_running(loop_manager, custom_loop):
+    loop_manager._running = True
+    task = loop_manager.add_loop(custom_loop)
+    assert custom_loop in loop_manager._loops
+    assert isinstance(task, asyncio.Task)
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
+@funcnodes_test(no_prefix=True)
+async def test_remove_loop(loop_manager, custom_loop):
+    loop_manager._loops.append(custom_loop)
+    loop_manager._loop_tasks.append(asyncio.create_task(asyncio.sleep(1)))
+    loop_manager.remove_loop(custom_loop)
+    assert custom_loop not in loop_manager._loops
+
+
+@funcnodes_test(no_prefix=True)
+async def test_run_forever_async(loop_manager):
+    loop_manager._running = True
+    task = asyncio.create_task(loop_manager.run_forever_async())
+    await asyncio.sleep(0.5)
+    loop_manager._running = False
+    await asyncio.sleep(0.1)
+    task.cancel()
+    with suppress(asyncio.CancelledError):
+        await task
+
+
+@funcnodes_test(no_prefix=True)
+async def test_stop_loop_manager(loop_manager):
+    loop_manager._running = True
+    loop_manager.stop()
+    assert not loop_manager.running
+    assert len(loop_manager._loops) == 0
+
+
+@funcnodes_test(no_prefix=True)
+async def test_run_forever_threaded(loop_manager):
+    loop_manager._running = True
+    import threading
+
+    thread = threading.Thread(target=loop_manager.run_forever)
+    thread.start()
+    await asyncio.sleep(1)
+    loop_manager.stop()
+    await asyncio.sleep(0.1)
+    thread.join()
+    assert not loop_manager.running
