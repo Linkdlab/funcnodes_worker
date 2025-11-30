@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from contextlib import suppress
+import time
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -117,13 +118,17 @@ def custom_loop():
 
 
 @funcnodes_test(no_prefix=True)
-async def test_add_loop_while_stopped(loop_manager, custom_loop):
+async def test_add_loop_while_stopped(
+    loop_manager: LoopManager, custom_loop: CustomLoop
+):
     loop_manager.add_loop(custom_loop)
     assert custom_loop in loop_manager._loops_to_add
 
 
 @funcnodes_test(no_prefix=True)
-async def test_add_loop_while_running(loop_manager, custom_loop):
+async def test_add_loop_while_running(
+    loop_manager: LoopManager, custom_loop: CustomLoop
+):
     loop_manager._running = True
     task = loop_manager.add_loop(custom_loop)
     assert custom_loop in loop_manager._loops
@@ -134,7 +139,7 @@ async def test_add_loop_while_running(loop_manager, custom_loop):
 
 
 @funcnodes_test(no_prefix=True)
-async def test_remove_loop(loop_manager, custom_loop):
+async def test_remove_loop(loop_manager: LoopManager, custom_loop: CustomLoop):
     loop_manager._loops.append(custom_loop)
     loop_manager._loop_tasks.append(asyncio.create_task(asyncio.sleep(1)))
     loop_manager.remove_loop(custom_loop)
@@ -142,7 +147,7 @@ async def test_remove_loop(loop_manager, custom_loop):
 
 
 @funcnodes_test(no_prefix=True)
-async def test_run_forever_async(loop_manager):
+async def test_run_forever_async(loop_manager: LoopManager):
     loop_manager._running = True
     task = asyncio.create_task(loop_manager.run_forever_async())
     await asyncio.sleep(0.5)
@@ -154,7 +159,7 @@ async def test_run_forever_async(loop_manager):
 
 
 @funcnodes_test(no_prefix=True)
-async def test_stop_loop_manager(loop_manager):
+async def test_stop_loop_manager(loop_manager: LoopManager):
     loop_manager._running = True
     loop_manager.stop()
     assert not loop_manager.running
@@ -162,13 +167,11 @@ async def test_stop_loop_manager(loop_manager):
 
 
 @funcnodes_test(no_prefix=True)
-async def test_run_forever_threaded(loop_manager):
-    loop_manager._running = True
-    import threading
-
-    thread = threading.Thread(target=loop_manager.run_forever)
-    thread.start()
-    await asyncio.sleep(1)
+async def test_run_forever_threaded(loop_manager: LoopManager):
+    thread = loop_manager.run_forever_threaded()
+    start = time.time()
+    while not loop_manager.running and time.time() - start < 10:
+        await asyncio.sleep(0.1)
     loop_manager.stop()
     await asyncio.sleep(0.1)
     thread.join()

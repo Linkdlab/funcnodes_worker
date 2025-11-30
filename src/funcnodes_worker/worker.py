@@ -623,9 +623,10 @@ class Worker(ABC):
             else uuid
         )
         self._name = name or None
-        self._data_path: Path = Path(
-            data_path if data_path else get_worker_dir(self.uuid())
-        )
+        self._WORKERS_DIR: Path = get_workers_dir()
+        self._WORKER_DIR: Path = get_worker_dir(self.uuid())
+
+        self._data_path: Path = Path(data_path if data_path else self._WORKER_DIR)
         self.data_path = self._data_path
         self.logger = fn.get_logger(self.uuid(), propagate=False)
         if debug:
@@ -661,15 +662,15 @@ class Worker(ABC):
 
     @property
     def _process_file(self) -> Path:
-        return get_workers_dir() / f"worker_{self.uuid()}.p"
+        return self._WORKERS_DIR / f"worker_{self.uuid()}.p"
 
     @property
     def _runstate_file(self) -> Path:
-        return get_workers_dir() / f"worker_{self.uuid()}.runstate"
+        return self._WORKERS_DIR / f"worker_{self.uuid()}.runstate"
 
     @property
     def _config_file(self) -> Path:
-        return get_workers_dir() / f"worker_{self.uuid()}.json"
+        return self._WORKERS_DIR / f"worker_{self.uuid()}.json"
 
     def _check_process_file(self, hard: bool = False):
         pf = self._process_file
@@ -831,7 +832,7 @@ class Worker(ABC):
         c["pid"] = os.getpid()
 
         # if the data_path is the default data_path, set it to None
-        if c["data_path"] == get_worker_dir(self.uuid()):
+        if c["data_path"] == self._WORKER_DIR:
             c["data_path"] = None
         cfile = self._config_file
         if not cfile.parent.exists():

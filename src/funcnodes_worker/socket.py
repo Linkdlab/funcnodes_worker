@@ -9,6 +9,7 @@ import asyncio
 from funcnodes_core import NodeSpace, FUNCNODES_LOGGER
 from funcnodes_worker import CustomLoop
 from .remote_worker import RemoteWorker, RemoteWorkerJson
+from typing import Any
 
 STARTPORT = 9382
 ENDPORT = 9482
@@ -166,9 +167,8 @@ class SocketWorker(RemoteWorker):
 
         bytemessage = f"{headerstring}\r\n\r\n".encode() + data + self.DELIMITER
 
-        async def _send(writer):
-            writer.write(bytemessage)
-            await writer.drain()
+        async def _send(writer: asyncio.StreamWriter):
+            await self._write_and_drain(writer, bytemessage)
 
         if writer:
             try:
@@ -191,9 +191,8 @@ class SocketWorker(RemoteWorker):
         """Sends a message to the frontend."""
         bytemessage = msg.encode() + self.DELIMITER
 
-        async def _send(writer):
-            writer.write(bytemessage)
-            await writer.drain()
+        async def _send(writer: asyncio.StreamWriter):
+            await self._write_and_drain(writer, bytemessage)
 
         if writer:
             try:
@@ -248,3 +247,16 @@ class SocketWorker(RemoteWorker):
         conf.pop("host", None)
         conf.pop("port", None)
         return conf
+
+    async def _write_and_drain(self, writer: asyncio.StreamWriter, payload: bytes):
+        """Write bytes to a writer and await drain; tolerates mocks where write returns a coroutine."""
+        res: Any = writer.write(payload)
+        if asyncio.iscoroutine(res):
+            await res
+        elif hasattr(res, "__await__"):
+            await res
+        drain_res = writer.drain()
+        if asyncio.iscoroutine(drain_res):
+            await drain_res
+        elif hasattr(drain_res, "__await__"):
+            await drain_res

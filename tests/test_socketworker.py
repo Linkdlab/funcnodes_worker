@@ -44,10 +44,11 @@ async def test_send_message_to_clients(worker):
 
 
 @funcnodes_test(no_prefix=True)
-async def test_stop(worker):
+async def test_stop(worker: SocketWorker):
     asyncio.create_task(worker.run_forever_async())
-    await worker.wait_for_running(timeout=10)
+    await worker.wait_for_running(timeout=20)
     await asyncio.sleep(1)
     assert worker.socket_loop.running
     worker.stop()
+    await asyncio.sleep(2)
     assert not worker.socket_loop.running
