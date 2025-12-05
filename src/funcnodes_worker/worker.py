@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from logging.handlers import RotatingFileHandler
+import gc
 from functools import wraps
 from typing import (
     List,
@@ -106,7 +106,6 @@ class WorkerState(TypedDict):
     backend: NodeSpaceJSON
     view: ViewState
     meta: MetaInfo
-    dependencies: dict[str, List[str]]
     external_workers: Dict[str, List[FuncNodesExternalWorkerJson]]
 
 
@@ -200,7 +199,7 @@ class LocalWorkerLookupLoop(CustomLoop):
             p = self._path
 
         if not p.exists():
-            os.mkdir(p)
+            p.mkdir(parents=True, exist_ok=True)
 
         if str(p) not in sys.path:
             sys.path.insert(0, str(p))
@@ -272,11 +271,24 @@ class LocalWorkerLookupLoop(CustomLoop):
             self._client.logger.exception(e)
 
     def start_local_worker(
-        self, worker_class: Type[FuncNodesExternalWorker], worker_id: str
+        self,
+        worker_class: Type[FuncNodesExternalWorker],
+        worker_id: str,
+        name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
     ):
         if worker_class not in self.worker_classes:
             self.worker_classes.append(worker_class)
-        worker_instance: FuncNodesExternalWorker = worker_class(workerid=worker_id)
+
+        self._client.logger.info(
+            f"starting local worker {worker_class.NODECLASSID} {worker_id}"
+        )
+        worker_instance: FuncNodesExternalWorker = worker_class(
+            workerid=worker_id,
+            data_path=self._client.data_path / "external_workers" / worker_id,
+            name=name,
+            config=config,
+        )
 
         worker_instance.on(
             "stopping",
@@ -284,14 +296,48 @@ class LocalWorkerLookupLoop(CustomLoop):
         )
         self._client.loop_manager.add_loop(worker_instance)
 
-        self._client.nodespace.lib.add_nodes(
-            worker_instance.get_all_nodeclasses(),
-            [EXTERNALWORKERLIB, worker_instance.uuid],
-        )
+        def _inner_update_worker_shelf(*args, **kwargs):
+            self._update_worker_shelf(worker_instance)
+
+        worker_instance.on("nodes_update", _inner_update_worker_shelf)
+
+        self._update_worker_shelf(worker_instance)
 
         self._client.request_save()
 
         return worker_instance
+
+    def _update_worker_shelf(self, worker_instance: FuncNodesExternalWorker):
+        shelf_path = [EXTERNALWORKERLIB, worker_instance.uuid]
+        try:
+            self._client.nodespace.lib.remove_shelf_path(shelf_path)
+        except ValueError:
+            pass
+
+        worker_nodeshelf_ref = worker_instance.nodeshelf
+        worker_nodeshelf_obj = (
+            worker_nodeshelf_ref() if worker_nodeshelf_ref is not None else None
+        )
+        if worker_nodeshelf_obj is not None:
+            try:
+                self._client.nodespace.lib.remove_shelf_path(
+                    [*shelf_path, worker_nodeshelf_obj.name]
+                )
+            except ValueError:
+                pass
+        # perform a gc collect to remove any references to the old nodeshelf
+        gc.collect()
+
+        self._client.nodespace.lib.add_nodes(
+            worker_instance.get_all_nodeclasses(),
+            shelf_path,
+        )
+        # Reuse worker_nodeshelf_obj instead of accessing the property again
+        # to avoid calling get_nodeshelf() twice
+        if worker_nodeshelf_obj is not None:
+            self._client.nodespace.lib.add_subshelf_weak(
+                worker_nodeshelf_ref, shelf_path
+            )
 
     def start_local_worker_by_id(self, worker_id: str):
         for worker_class in self.worker_classes:
@@ -369,6 +415,12 @@ class LocalWorkerLookupLoop(CustomLoop):
             #
             return True
         return False
+
+    async def get_local_worker_by_id(self, class_id: str, worker_id: str):
+        if class_id in FuncNodesExternalWorker.RUNNING_WORKERS:
+            if worker_id in FuncNodesExternalWorker.RUNNING_WORKERS[class_id]:
+                return FuncNodesExternalWorker.RUNNING_WORKERS[class_id][worker_id]
+        return None
 
 
 class SaveLoop(CustomLoop):
@@ -577,22 +629,23 @@ class Worker(ABC):
             else uuid
         )
         self._name = name or None
-        self._data_path: Path = Path(
-            data_path if data_path else get_worker_dir(self.uuid())
-        )
+        self._WORKERS_DIR: Path = get_workers_dir()
+        self._WORKER_DIR: Path = get_worker_dir(self.uuid())
+
+        self._data_path: Path = Path(data_path if data_path else self._WORKER_DIR)
         self.data_path = self._data_path
         self.logger = fn.get_logger(self.uuid(), propagate=False)
         if debug:
             self.logger.setLevel("DEBUG")
         self.logger.info("Init Worker %s", self.__class__.__name__)
 
-        self.logger.addHandler(
-            RotatingFileHandler(
-                self.data_path / "worker.log",
-                maxBytes=100000,
-                backupCount=5,
-            )
-        )
+        # self.logger.addHandler(
+        #     RotatingFileHandler(
+        #         self.data_path / "worker.log",
+        #         maxBytes=100000,
+        #         backupCount=5,
+        #     )
+        # )
 
         self._exposed_methods = get_exposed_methods(self)
         self._progress_state: ProgressState = {
@@ -615,15 +668,15 @@ class Worker(ABC):
 
     @property
     def _process_file(self) -> Path:
-        return get_workers_dir() / f"worker_{self.uuid()}.p"
+        return self._WORKERS_DIR / f"worker_{self.uuid()}.p"
 
     @property
     def _runstate_file(self) -> Path:
-        return get_workers_dir() / f"worker_{self.uuid()}.runstate"
+        return self._WORKERS_DIR / f"worker_{self.uuid()}.runstate"
 
     @property
     def _config_file(self) -> Path:
-        return get_workers_dir() / f"worker_{self.uuid()}.json"
+        return self._WORKERS_DIR / f"worker_{self.uuid()}.json"
 
     def _check_process_file(self, hard: bool = False):
         pf = self._process_file
@@ -641,6 +694,8 @@ class Worker(ABC):
                         self.loop_manager.async_call(self.run_cmd(cmd))
                     else:
                         if psutil.pid_exists(cmd) and cmd != os.getpid():
+                            if self._runstate != "stopped":
+                                self.stop(save=False)
                             raise RuntimeError("Worker already running")
                 except RuntimeError as e:
                     raise e
@@ -783,7 +838,7 @@ class Worker(ABC):
         c["pid"] = os.getpid()
 
         # if the data_path is the default data_path, set it to None
-        if c["data_path"] == get_worker_dir(self.uuid()):
+        if c["data_path"] == self._WORKER_DIR:
             c["data_path"] = None
         cfile = self._config_file
         if not cfile.parent.exists():
@@ -890,9 +945,9 @@ class Worker(ABC):
             )
             zip_file.writestr(
                 "state",
-                json.dumps(self.get_save_state(), cls=JSONEncoder, indent=2).encode(
-                    "utf-8"
-                ),
+                json.dumps(
+                    self.get_save_state(export=True), cls=JSONEncoder, indent=2
+                ).encode("utf-8"),
             )
             if self.venvmanager:
                 tomlpath = self.data_path / "pyproject.toml"
@@ -1006,8 +1061,16 @@ class Worker(ABC):
     # endregion properties
 
     # region local worker
-    def add_local_worker(self, worker_class: Type[FuncNodesExternalWorker], nid: str):
-        w = self.local_worker_lookup_loop.start_local_worker(worker_class, nid)
+    def add_local_worker(
+        self,
+        worker_class: Type[FuncNodesExternalWorker],
+        nid: str,
+        name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        w = self.local_worker_lookup_loop.start_local_worker(
+            worker_class, nid, name=name, config=config
+        )
         self.loop_manager.async_call(self.worker_event("external_worker_update"))
         return w
 
@@ -1035,6 +1098,7 @@ class Worker(ABC):
         worker_id: str,
         class_id: str,
         name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
     ):
         worker_instance = FuncNodesExternalWorker.RUNNING_WORKERS.get(class_id, {}).get(
             worker_id
@@ -1044,6 +1108,11 @@ class Worker(ABC):
         if name is not None:
             worker_instance.name = name
 
+        if config is not None:
+            worker_instance.update_config(config)
+            # Note: _update_worker_shelf will be called automatically via the
+            # "nodes_update" event handler registered in start_local_worker,
+            # so we don't need to call it directly here.
         self.loop_manager.async_call(self.worker_event("external_worker_update"))
 
     @exposed_method()
@@ -1053,6 +1122,21 @@ class Worker(ABC):
         )
 
         return res
+
+    @exposed_method()
+    async def get_external_worker_config(
+        self, worker_id: str, class_id: str
+    ) -> Dict[str, Dict[str, Any]]:
+        worker_instance = await self.local_worker_lookup_loop.get_local_worker_by_id(
+            class_id, worker_id
+        )
+        if worker_instance is None:
+            raise ValueError(f"Worker {worker_id} ({class_id}) not found")
+        return {
+            "jsonSchema": worker_instance.config.model_json_schema(),
+            "uiSchema": None,
+            "formData": worker_instance.config.model_dump(mode="json"),
+        }
 
     # endregion local worker
     # region states
@@ -1120,17 +1204,16 @@ class Worker(ABC):
         return filename
 
     @exposed_method()
-    def get_save_state(self) -> WorkerState:
+    def get_save_state(self, export: bool = False) -> WorkerState:
         ws = self.view_state()
         ws.pop("nodes", None)
         data: WorkerState = {
             "backend": saving.serialize_nodespace_for_saving(self.nodespace),
             "view": ws,
             "meta": self.get_meta(),
-            "dependencies": self.nodespace.lib.get_dependencies(),
             "external_workers": {
                 workerclass.NODECLASSID: [
-                    w_instance.serialize()
+                    w_instance.serialize(export=export)
                     for w_instance in workerclass.running_instances()
                 ]
                 for workerclass in self.local_worker_lookup_loop.worker_classes
@@ -1288,11 +1371,14 @@ class Worker(ABC):
                         if worker.NODECLASSID == worker_id:
                             for instance in worker_uuid:
                                 if isinstance(instance, str):
-                                    w = self.add_local_worker(worker, instance)
+                                    self.add_local_worker(worker, instance)
                                 else:
-                                    w = self.add_local_worker(worker, instance["uuid"])
-                                    if "name" in instance:
-                                        w.name = instance["name"]
+                                    self.add_local_worker(
+                                        worker,
+                                        nid=instance["uuid"],
+                                        name=instance.get("name", None),
+                                        config=instance.get("config", None),
+                                    )
                                 found = True
                     if not found:
                         self.logger.warning(f"External worker {worker_id} not found")
@@ -2094,11 +2180,12 @@ class Worker(ABC):
         worker.run_forever()
         worker.logger.debug("Worker initialized and running stopped")
 
-    def stop(self):
+    def stop(self, save: bool = True):
         if self.is_running():
             self.loop_manager.async_call(self.worker_event("stopping"))
         self.runstate = "stopped"
-        self.save()
+        if save:
+            self.save()
         self._save_disabled = True
 
         self.loop_manager.stop()
@@ -2117,7 +2204,10 @@ class Worker(ABC):
         return self.loop_manager.running
 
     def cleanup(self):
-        self.runstate = "removed"
+        try:
+            self.runstate = "removed"
+        except NameError:
+            pass
         if self.is_running():  # pragma: no cover
             self.stop()
         self.loop_manager.stop()

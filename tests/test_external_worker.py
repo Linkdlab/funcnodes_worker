@@ -1,44 +1,23 @@
-from unittest import IsolatedAsyncioTestCase
+from typing import Optional
+from weakref import ref
 import funcnodes_core as fn
-
-from funcnodes_core.testing import (
-    teardown as fn_teardown,
-    set_in_test as fn_set_in_test,
-)
-
-fn_set_in_test()
-
-
-from funcnodes_worker import (  # noqa: E402
-    FuncNodesExternalWorker,
-    RemoteWorker,
-)
-from unittest.mock import MagicMock  # noqa: E402
-
-
-from funcnodes_core import (  # noqa: E402
-    instance_nodefunction,
-    flatten_shelf,
-)
+from funcnodes_core import instance_nodefunction, flatten_shelf  # noqa: E402
 from funcnodes_worker import CustomLoop  # noqa: E402
+from funcnodes_worker import FuncNodesExternalWorker, RemoteWorker  # noqa: E402
+from unittest.mock import MagicMock  # noqa: E402
 import time  # noqa: E402
 import asyncio  # noqa: E402
 import logging  # noqa: E402
-
 import tempfile  # noqa: E402
 import json  # noqa: E402
 import gc  # noqa: E402
+import pytest
+from pytest_funcnodes import funcnodes_test
 
 try:
     import objgraph  # noqa: E402
 except ImportError:
     objgraph = None
-
-fn.FUNCNODES_LOGGER.setLevel(logging.DEBUG)
-
-
-class ExternalWorker_Test(FuncNodesExternalWorker):
-    pass
 
 
 class RaiseErrorLogger(logging.Logger):
@@ -69,77 +48,6 @@ class _TestWorker(RemoteWorker):
 
     async def send_bytes(self, *args, **kwargs):
         return MagicMock()
-
-
-class TestExternalWorker(IsolatedAsyncioTestCase):
-    def test_external_worker_missing_loop(self):
-        class ExternalWorker1(FuncNodesExternalWorker):
-            pass
-
-        with self.assertRaises(TypeError):
-            ExternalWorker1()
-
-    def test_external_worker_missing_nodeclassid(self):
-        with self.assertRaises(ValueError):
-
-            class ExternalWorker2(FuncNodesExternalWorker):
-                IS_ABSTRACT = False
-
-                async def loop(self):
-                    pass
-
-    async def test_external_worker_sync_loop(self):
-        class ExternalWorker1(FuncNodesExternalWorker):
-            NODECLASSID = "testexternalworker"
-
-            def loop(self):
-                pass
-
-        worker = ExternalWorker1(workerid="test")
-        worker._logger = RaiseErrorLogger("raiserror")
-        await asyncio.sleep(0.5)
-
-        with self.assertRaises(TypeError) as e:
-            await worker.continuous_run()
-
-        self.assertEqual(
-            "object NoneType can't be used in 'await' expression", str(e.exception)
-        )
-
-    async def test_external_worker_loop(self):
-        class ExternalWorker1(FuncNodesExternalWorker):
-            NODECLASSID = "testexternalworker"
-
-            async def loop(self):
-                await self.stop()
-
-        self.assertEqual(ExternalWorker1.running_instances(), [])
-        worker = ExternalWorker1(workerid="test")
-        worker._logger = RaiseErrorLogger("raiserror")
-        await worker.continuous_run()
-
-    async def test_external_worker_serialization(self):
-        class ExternalWorker1(FuncNodesExternalWorker):
-            NODECLASSID = "testexternalworker"
-
-            async def loop(self):
-                await self.stop()
-
-            @instance_nodefunction()
-            def test(self, a: int) -> int:
-                return 1 + a
-
-        worker = ExternalWorker1(workerid="test")
-        ser = json.loads(json.dumps(worker, cls=fn.JSONEncoder))
-        self.assertEqual(
-            ser,
-            {
-                "name": "ExternalWorker1(test)",
-                "nodeclassid": "testexternalworker",
-                "running": False,
-                "uuid": "test",
-            },
-        )
 
 
 class ExternalWorkerSelfStop(FuncNodesExternalWorker):
@@ -177,207 +85,353 @@ class ExternalWorker1(FuncNodesExternalWorker):
         return self.triggercount
 
 
-class TestExternalWorkerWithWorker(IsolatedAsyncioTestCase):
-    async def asyncSetUp(self) -> None:
-        self.tempdir = tempfile.TemporaryDirectory(prefix="funcnodes")
-        self.retmoteworker = _TestWorker(data_path=self.tempdir.name)
-        self._loop = asyncio.get_event_loop()
-        self.runtask = self._loop.create_task(self.retmoteworker.run_forever_async())
-        t = time.time()
-        while not self.retmoteworker.loop_manager.running and time.time() - t < 10:
-            if self.runtask.done():
-                if self.runtask.exception():
-                    raise self.runtask.exception()
-            await asyncio.sleep(1)
-        if not self.retmoteworker.loop_manager.running:
-            raise Exception("Worker not running")
+@fn.NodeDecorator(node_id="workertestnode")
+async def workertestnode(a: int) -> int:
+    return a + 1
 
-    async def asyncTearDown(self):
-        self.retmoteworker.stop()
 
-        async with asyncio.timeout(5):
-            await self.runtask
+class ExternalWorkerWithNodeShelves(FuncNodesExternalWorker):
+    NODECLASSID = "testexternalworker_ExternalWorkerWithNodeShelves"
 
-    def tearDown(self) -> None:
-        if not self.runtask.done():
-            self.runtask.cancel()
-
-        fn_teardown()
-        self.tempdir.cleanup()
-        return super().tearDown()
-
-    async def test_external_worker_nodes(self):
-        self.retmoteworker.add_local_worker(
-            ExternalWorker1, "test_external_worker_nodes"
-        )
-        nodeid = "testexternalworker_ExternalWorker1.test_external_worker_nodes.test"
-        nodeclass = self.retmoteworker.nodespace.lib.get_node_by_id(nodeid)
-        self.assertEqual(nodeclass.node_name, "Test")
-        node = self.retmoteworker.add_node(nodeid, name="TestNode")
-        self.maxDiff = None
-        expected_node_ser = {
-            "name": "TestNode",
-            "id": node.uuid,
-            "node_id": nodeid,
-            "node_name": "Test",
-            "io": {
-                "a": {"is_input": True, "value": fn.NoValue, "emit_value_set": True},
-                "out": {"is_input": False, "value": fn.NoValue, "emit_value_set": True},
-            },
-        }
-        self.assertEqual(node.serialize(), expected_node_ser)
-
-    async def test_base_run(self):
-        for _ in range(5):
-            await asyncio.sleep(0.3)
-            t = time.time()
-            self.assertLessEqual(t - self.retmoteworker.timerloop.last_run, 0.25)
-
-    async def test_external_worker_run(self):
-        def get_ws_nodes():
-            nodes = []
-            for shelf in self.retmoteworker.nodespace.lib.shelves:
-                nodes.extend(flatten_shelf(shelf)[0])
-            return nodes
-
-        def check_nodes_length(target=0):
-            nodes = get_ws_nodes()
-
-            if target == 0 and len(nodes) > 0 and objgraph:
-                objgraph.show_backrefs(
-                    nodes,
-                    max_depth=15,
-                    filename="backrefs_nodes.dot",
-                    highlight=lambda x: isinstance(x, fn.Node),
-                    shortnames=False,
-                )
-
-            self.assertEqual(len(nodes), target, nodes)
-
-            del nodes
-            gc.collect()
-
-        await asyncio.sleep(0.5)
-        t = time.time()
-        self.assertLessEqual(
-            t - self.retmoteworker.timerloop.last_run,
-            0.4,
-            (t, self.retmoteworker.timerloop.last_run),
-        )
-        print("adding worker")
-        check_nodes_length(0)
-
-        w: ExternalWorker1 = self.retmoteworker.add_local_worker(
-            ExternalWorker1, "test_external_worker_run"
-        )
-
-        check_nodes_length(2)
-
-        self.assertIn(
-            "testexternalworker_ExternalWorker1",
-            FuncNodesExternalWorker.RUNNING_WORKERS,
-        )
-        self.assertIn(
-            "test_external_worker_run",
-            FuncNodesExternalWorker.RUNNING_WORKERS[
-                "testexternalworker_ExternalWorker1"
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._nodeshelf = fn.Shelf(
+            name="test",
+            description="test",
+            nodes=[
+                workertestnode,
             ],
         )
 
-        nodetest = self.retmoteworker.add_node(
-            "testexternalworker_ExternalWorker1.test_external_worker_run.test",
-        )
+    def get_nodeshelf(self) -> Optional[fn.Shelf]:
+        return self._nodeshelf
 
-        node_getcount = self.retmoteworker.add_node(
-            "testexternalworker_ExternalWorker1.test_external_worker_run.get_count",
-        )
 
-        self.assertIn("out", node_getcount.outputs, node_getcount.outputs.keys())
-        self.assertEqual(node_getcount.outputs["out"].value, fn.NoValue)
-        self.assertEqual(w.triggercount, 0)
+# @pytest.fixture(autouse=True)
+# def funcnodes_setup_teardown():
+#     fn_setup()
+#     register_node(workertestnode)
+#     yield
+#     fn_teardown()
 
-        fn.FUNCNODES_LOGGER.debug("triggering node_getcount 1")
-        await node_getcount
 
-        self.assertEqual(node_getcount.outputs["out"].value, 0)
-        self.assertEqual(w.triggercount, 0)
+@pytest.fixture
+async def running_remote_worker():
+    tempdir = tempfile.TemporaryDirectory(prefix="funcnodes")
+    retmoteworker = _TestWorker(data_path=tempdir.name)
+    loop = asyncio.get_event_loop()
+    runtask = loop.create_task(retmoteworker.run_forever_async())
+    start = time.time()
+    while not retmoteworker.loop_manager.running and time.time() - start < 50:
+        if runtask.done():
+            if runtask.exception():
+                tempdir.cleanup()
+                raise runtask.exception()
+        await asyncio.sleep(1)
+    if not retmoteworker.loop_manager.running:
+        runtask.cancel()
+        tempdir.cleanup()
+        raise Exception("Worker not running")
+    try:
+        yield retmoteworker
+    finally:
+        retmoteworker.stop()
+        async with asyncio.timeout(5):
+            await runtask
+        tempdir.cleanup()
 
-        self.assertEqual(w.triggercount, 0)
-        fn.FUNCNODES_LOGGER.debug("triggering nodetest 1")
-        nodetest.inputs["a"].value = 1
-        await fn.run_until_complete(nodetest)
 
-        self.assertEqual(w.triggercount, 1)
-        self.assertEqual(nodetest.outputs["out"].value, 2)
-        fn.FUNCNODES_LOGGER.debug("triggering node_getcount 2")
-        await node_getcount
+@funcnodes_test(no_prefix=True)
+def test_external_worker_missing_nodeclassid():
+    with pytest.raises(ValueError):
 
-        self.assertIn("out", node_getcount.outputs, node_getcount.outputs.keys())
-        self.assertEqual(node_getcount.outputs["out"].value, 1)
+        class ExternalWorker2(FuncNodesExternalWorker):
+            IS_ABSTRACT = False
 
-        self.assertEqual(
-            nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"],
-            False,
-        )
+            async def loop(self):
+                pass
 
-        w.increment_trigger()
-        self.assertEqual(
-            nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"],
-            True,
-        )
-        await asyncio.sleep(0.1)
-        print("waiting")
+
+@funcnodes_test(no_prefix=True)
+async def test_external_worker_sync_loop():
+    class ExternalWorker1(FuncNodesExternalWorker):
+        NODECLASSID = "testexternalworker"
+
+        def loop(self):
+            pass
+
+    assert ExternalWorker1.running_instances() == [], (
+        ExternalWorker1.running_instances()
+    )
+    worker = ExternalWorker1(workerid="test")
+    worker._logger = RaiseErrorLogger("raiserror")
+    await asyncio.sleep(0.5)
+
+    with pytest.raises(TypeError) as e:
+        await worker.continuous_run()
+
+    assert "object NoneType can't be used in 'await' expression" == str(e.value)
+    assert worker.running
+    await worker.stop()
+    assert not worker.running
+    assert ExternalWorker1.running_instances() == [], (
+        ExternalWorker1.running_instances()
+    )
+
+
+@funcnodes_test(no_prefix=True)
+async def test_external_worker_loop():
+    class ExternalWorker1(FuncNodesExternalWorker):
+        NODECLASSID = "testexternalworker"
+
+        async def loop(self):
+            await self.stop()
+
+    assert ExternalWorker1.running_instances() == [], (
+        ExternalWorker1.running_instances()
+    )
+    worker = ExternalWorker1(workerid="test")
+    worker._logger = RaiseErrorLogger("raiserror")
+    await worker.continuous_run()
+
+
+@funcnodes_test(no_prefix=True)
+async def test_external_worker_serialization():
+    class ExternalWorker1(FuncNodesExternalWorker):
+        NODECLASSID = "testexternalworker"
+
+        async def loop(self):
+            await self.stop()
+
+        @instance_nodefunction()
+        def test(self, a: int) -> int:
+            return 1 + a
+
+    worker = ExternalWorker1(workerid="test")
+    ser = json.loads(json.dumps(worker, cls=fn.JSONEncoder))
+    assert ser == {
+        "name": "ExternalWorker1(test)",
+        "nodeclassid": "testexternalworker",
+        "running": False,
+        "uuid": "test",
+        "config": {},
+    }
+
+
+@funcnodes_test(no_prefix=True)
+async def test_external_worker_nodes(running_remote_worker: _TestWorker):
+    running_remote_worker.add_local_worker(
+        ExternalWorker1, "test_external_worker_nodes"
+    )
+    nodeid = "testexternalworker_ExternalWorker1.test_external_worker_nodes.test"
+    nodeclass = running_remote_worker.nodespace.lib.get_node_by_id(nodeid)
+    assert nodeclass.node_name == "Test"
+    node = running_remote_worker.add_node(nodeid, name="TestNode")
+    expected_node_ser = {
+        "name": "TestNode",
+        "id": node.uuid,
+        "node_id": nodeid,
+        "node_name": "Test",
+        "io": {
+            "a": {"is_input": True, "value": fn.NoValue, "emit_value_set": True},
+            "out": {"is_input": False, "value": fn.NoValue, "emit_value_set": True},
+        },
+    }
+    assert node.serialize() == expected_node_ser
+
+
+@funcnodes_test(no_prefix=True)
+async def test_base_run(running_remote_worker: _TestWorker):
+    for _ in range(5):
+        await asyncio.sleep(0.3)
         t = time.time()
-        while (
-            nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"]
-        ) and time.time() - t < 10:
-            await asyncio.sleep(0.1)
-        t = time.time()
-        while not w.stopped and time.time() - t < 10:
-            print(w._stopped, w._running)
-            await asyncio.sleep(0.6)
-            await w.stop()
-        del w
-        del node_getcount
-        del nodetest
-        await asyncio.sleep(5)
+        assert t - running_remote_worker.timerloop.last_run <= 0.25
 
-        # await asyncio.sleep(6)
-        t = time.time()
-        self.assertLessEqual(t - self.retmoteworker.timerloop.last_run, 1.0)
-        gc.collect()
-        if (
-            "testexternalworker_ExternalWorker1"
-            in FuncNodesExternalWorker.RUNNING_WORKERS
-        ):
-            if (
-                "test_external_worker_run"
-                in FuncNodesExternalWorker.RUNNING_WORKERS[
-                    "testexternalworker_ExternalWorker1"
-                ]
-            ):
-                if objgraph:
-                    objgraph.show_backrefs(
-                        [
-                            FuncNodesExternalWorker.RUNNING_WORKERS[
-                                "testexternalworker_ExternalWorker1"
-                            ]["test_external_worker_run"]
-                        ],
-                        max_depth=10,
-                        filename="backrefs_before.dot",
-                        highlight=lambda x: isinstance(x, ExternalWorker1),
-                        shortnames=False,
-                    )
 
-            self.assertNotIn(
-                "test_external_worker_run",
-                FuncNodesExternalWorker.RUNNING_WORKERS[
-                    "testexternalworker_ExternalWorker1"
-                ],
+@funcnodes_test(no_prefix=True)
+async def test_external_worker_run(running_remote_worker: _TestWorker):
+    def get_ws_nodes():
+        nodes = []
+        for shelf in running_remote_worker.nodespace.lib.shelves:
+            nodes.extend(flatten_shelf(shelf)[0])
+        return nodes
+
+    def check_nodes_length(target=0):
+        nodes = get_ws_nodes()
+
+        if target == 0 and len(nodes) > 0 and objgraph:
+            objgraph.show_backrefs(
+                nodes,
+                max_depth=15,
+                filename="backrefs_nodes.dot",
+                highlight=lambda x: isinstance(x, fn.Node),
+                shortnames=False,
             )
 
-        check_nodes_length(0)
+        assert len(nodes) == target, nodes
 
-        await asyncio.sleep(0.5)
-        t = time.time()
-        self.assertLessEqual(t - self.retmoteworker.timerloop.last_run, 0.3)
+        del nodes
+        gc.collect()
+
+    await asyncio.sleep(0.5)
+    t = time.time()
+    assert t - running_remote_worker.timerloop.last_run <= 0.4
+    print("adding worker")
+    check_nodes_length(0)
+
+    w: ExternalWorker1 = running_remote_worker.add_local_worker(
+        ExternalWorker1, "test_external_worker_run"
+    )
+
+    check_nodes_length(2)
+
+    assert (
+        "testexternalworker_ExternalWorker1" in FuncNodesExternalWorker.RUNNING_WORKERS
+    )
+    assert (
+        "test_external_worker_run"
+        in FuncNodesExternalWorker.RUNNING_WORKERS["testexternalworker_ExternalWorker1"]
+    )
+
+    nodetest = running_remote_worker.add_node(
+        "testexternalworker_ExternalWorker1.test_external_worker_run.test",
+    )
+
+    node_getcount = running_remote_worker.add_node(
+        "testexternalworker_ExternalWorker1.test_external_worker_run.get_count",
+    )
+
+    assert "out" in node_getcount.outputs
+    assert node_getcount.outputs["out"].value is fn.NoValue
+    assert w.triggercount == 0
+
+    fn.FUNCNODES_LOGGER.debug("triggering node_getcount 1")
+    await node_getcount
+
+    assert node_getcount.outputs["out"].value == 0
+    assert w.triggercount == 0
+
+    fn.FUNCNODES_LOGGER.debug("triggering nodetest 1")
+    nodetest.inputs["a"].value = 1
+    await fn.run_until_complete(nodetest)
+
+    assert w.triggercount == 1
+    assert nodetest.outputs["out"].value == 2
+    fn.FUNCNODES_LOGGER.debug("triggering node_getcount 2")
+    await node_getcount
+
+    assert "out" in node_getcount.outputs
+    assert node_getcount.outputs["out"].value == 1
+
+    assert not (
+        nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"]
+    )
+
+    w.increment_trigger()
+    assert nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"]
+    await asyncio.sleep(0.1)
+    print("waiting")
+    t = time.time()
+    while (
+        nodetest.status()["requests_trigger"] or nodetest.status()["in_trigger"]
+    ) and time.time() - t < 10:
+        await asyncio.sleep(0.1)
+    t = time.time()
+    while not w.stopped and time.time() - t < 10:
+        print(w._stopped, w._running)
+        await asyncio.sleep(0.6)
+        await w.stop()
+    del w
+    del node_getcount
+    del nodetest
+    await asyncio.sleep(5)
+
+    t = time.time()
+    assert t - running_remote_worker.timerloop.last_run <= 1.0
+    gc.collect()
+    if "testexternalworker_ExternalWorker1" in FuncNodesExternalWorker.RUNNING_WORKERS:
+        if (
+            "test_external_worker_run"
+            in FuncNodesExternalWorker.RUNNING_WORKERS[
+                "testexternalworker_ExternalWorker1"
+            ]
+        ):
+            if objgraph:
+                objgraph.show_backrefs(
+                    [
+                        FuncNodesExternalWorker.RUNNING_WORKERS[
+                            "testexternalworker_ExternalWorker1"
+                        ]["test_external_worker_run"]
+                    ],
+                    max_depth=10,
+                    filename="backrefs_before.dot",
+                    highlight=lambda x: isinstance(x, ExternalWorker1),
+                    shortnames=False,
+                    extra_node_attrs=lambda x: {"longname": str(x)},
+                )
+
+        assert (
+            "test_external_worker_run"
+            not in FuncNodesExternalWorker.RUNNING_WORKERS[
+                "testexternalworker_ExternalWorker1"
+            ]
+        ), {
+            k: {vk: vv for vk, vv in v.items()}
+            for k, v in FuncNodesExternalWorker.RUNNING_WORKERS.items()
+        }
+
+    check_nodes_length(0)
+
+    await asyncio.sleep(0.5)
+    t = time.time()
+    assert t - running_remote_worker.timerloop.last_run <= 0.3
+
+
+@funcnodes_test(no_prefix=True)
+async def test_external_worker_nodes_shelf(running_remote_worker: _TestWorker):
+    worker = running_remote_worker.add_local_worker(
+        ExternalWorkerWithNodeShelves, "test_external_worker_nodes"
+    )
+
+    assert isinstance(worker, ExternalWorkerWithNodeShelves)
+
+    assert worker.get_nodeshelf() is not None
+    assert worker.get_nodeshelf().name == "test"
+    assert worker.get_nodeshelf().nodes == [workertestnode]
+
+    assert isinstance(worker.nodeshelf, ref)
+    assert worker.nodeshelf() is not None
+    assert worker.nodeshelf().name == "test"
+    assert worker.nodeshelf().nodes == [workertestnode]
+
+    nodeclass = running_remote_worker.nodespace.lib.get_node_by_id("workertestnode")
+    assert nodeclass.node_name == "workertestnode"
+
+
+@funcnodes_test(no_prefix=True)
+async def test_external_worker_nodes_multiple_updates(
+    running_remote_worker: _TestWorker,
+):
+    worker = running_remote_worker.add_local_worker(
+        ExternalWorkerWithNodeShelves, "test_external_worker_nodes_multiple"
+    )
+
+    for _ in range(2):
+        print("registered nodes", list(fn.node.REGISTERED_NODES.keys()))
+        worker.emit("nodes_update")
+        assert worker.get_nodeshelf() is not None
+        assert worker.get_nodeshelf().name == "test"
+        assert worker.get_nodeshelf().nodes == [workertestnode]
+
+        assert isinstance(worker.nodeshelf, ref)
+        assert worker.nodeshelf() is not None
+        assert worker.nodeshelf().name == "test"
+        assert worker.nodeshelf().nodes == [workertestnode]
+
+        print(
+            json.dumps(running_remote_worker.nodespace.lib.full_serialize(), indent=4)
+        )
+        print("registered nodes", list(fn.node.REGISTERED_NODES.keys()))
+
+        nodeclass = running_remote_worker.nodespace.lib.get_node_by_id("workertestnode")
+        assert nodeclass.node_name == "workertestnode"

@@ -143,13 +143,13 @@ class RemoteWorker(Worker):
                 await self._handle_cmd_msg(json_msg, json_response=True, **sendkwargs)
             if json_msg["type"] == "ping":
                 await self.send('{"type": "pong"}')
-        except Exception as e:
-            self.logger.exception(e)
+        except Exception as exc:
+            self.logger.exception(exc)
             await self.send(
                 ErrorMessage(
                     type="error",
-                    error=str(e),
-                    tb=traceback.format_exception(e),
+                    error=str(exc),
+                    tb=traceback.format_exception(exc),
                     id=json_msg.get("id"),
                 )
             )
