@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.0 (2025-12-05)
+
+### Feat
+
+- **worker**: add optional name and config parameters to external worker initialization
+
+### Fix
+
+- **loop**: await task shutdown and prune stale worker state
+
+### Refactor
+
+- **tests**: migrate test_loops to pytest and implement fixtures
+- **tests**: migrate WSWorker tests to pytest and implement fixtures
+- **tests**: remove unused pytestmark from test_socketworker.py
+- **tests**: migrate SocketWorker tests to pytest and utilize fixtures
+- **tests**: migrate test_client_connection to pytest and improve test structure
+- **tests**: update worker fixture to use test name for UUID
+
 ## 1.3.0 (2025-11-27)
 
 ### Feat
