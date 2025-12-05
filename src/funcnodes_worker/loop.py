@@ -1,8 +1,10 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
+import threading
 from typing import List, Optional
 import logging
+import warnings
 from funcnodes_core import NodeSpace
 import time
 import weakref
@@ -105,16 +107,29 @@ class LoopManager:
         self._loop_tasks: List[asyncio.Task] = []
         self._running = False
         self._loops_to_add = []
+        self._async_tasks = []
 
     def reset_loop(self):
         try:
-            self._loop = asyncio.get_event_loop()
-        except RuntimeError as e:
-            if str(e).startswith("There is no current event loop in thread"):
-                self._loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(self._loop)
-            else:
-                raise
+            # Try to get the running loop first (Python 3.7+)
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, try to get the current event loop
+            # Suppress deprecation warning for get_event_loop() in Python 3.13+
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=DeprecationWarning)
+                try:
+                    self._loop = asyncio.get_event_loop()
+                except RuntimeError as e:
+                    error_msg = str(e)
+                    if (
+                        "There is no current event loop" in error_msg
+                        or "There is no running event loop" in error_msg
+                    ):
+                        self._loop = asyncio.new_event_loop()
+                    # asyncio.set_event_loop(self._loop)
+                    else:
+                        raise
 
     def add_loop(self, loop: CustomLoop):
         if self._running:
@@ -154,10 +169,90 @@ class LoopManager:
             idx = self._loops.index(loop)
             task = self._loop_tasks.pop(idx)
             self._loops.pop(idx)
-            task.cancel()
+            self._cancel_and_await_task(task, is_running)
+
+    def _cancel_and_await_task(self, task: asyncio.Task, is_running: bool):
+        """Cancel a task and ensure the cancellation is awaited to release references."""
+
+        async def _wait_cancel(t: asyncio.Task):
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:  # pragma: no cover - defensive
+                worker = self._worker()
+                if worker is not None:
+                    worker.logger.exception(exc)
+
+        if task.done():
+            try:
+                _ = task.exception()
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:  # pragma: no cover - defensive
+                worker = self._worker()
+                if worker is not None:
+                    worker.logger.exception(exc)
+            return
+
+        task.cancel()
+
+        waiter = _wait_cancel(task)
+        if not is_running and not self._loop.is_closed():
+            try:
+                self._loop.run_until_complete(waiter)
+            except Exception as exc:  # pragma: no cover - defensive
+                worker = self._worker()
+                if worker is not None:
+                    worker.logger.exception(exc)
+        else:
+            scheduled = self.async_call(waiter)
+            if scheduled is None:
+                # no loop to schedule on; close coroutine to avoid "never awaited"
+                waiter.close()
 
     def async_call(self, croutine: asyncio.Coroutine):
-        return self._loop.create_task(croutine)
+        # Check if the loop is closed or not running
+
+        self._async_tasks: List[asyncio.Task] = [
+            t for t in self._async_tasks if not t.done() and not t.cancelled()
+        ]
+
+        if self._loop.is_closed():
+            # Try to get the running loop instead
+            try:
+                running_loop = asyncio.get_running_loop()
+                task = running_loop.create_task(croutine)
+                self._async_tasks.append(task)
+                return task
+            except RuntimeError:
+                # No running loop available, skip creating the task
+                worker = self._worker()
+                if worker is not None:
+                    worker.logger.warning(
+                        "Cannot create task: event loop is closed and no running loop available"
+                    )
+                # close coroutine to avoid runtime warning about never awaited
+                croutine.close()
+                return None
+
+        # Check if the loop is running
+        if not self._loop.is_running():
+            # Try to get the running loop instead
+            try:
+                running_loop = asyncio.get_running_loop()
+                task = running_loop.create_task(croutine)
+                self._async_tasks.append(task)
+                return task
+            except RuntimeError:
+                # No running loop available, but our loop exists, try to use it
+                # cannot schedule; close coroutine to avoid warnings
+                croutine.close()
+                return None
+
+        task = self._loop.create_task(croutine)
+        self._async_tasks.append(task)
+        return task
 
     def __del__(self):
         self.stop()
@@ -167,8 +262,57 @@ class LoopManager:
         for loop in list(self._loops):
             self.remove_loop(loop)
 
-        for task in self._loop_tasks:
-            task.cancel()
+        self._async_tasks: List[asyncio.Task] = [
+            t for t in self._async_tasks if not t.done() and not t.cancelled()
+        ]
+
+        is_running = self._loop.is_running()
+
+        # Give pending async_call tasks a brief chance to finish when loop is running
+        grace_handled = False
+        if is_running and self._async_tasks:
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            same_thread = running_loop is self._loop
+            if not same_thread:
+                try:
+                    fut = asyncio.run_coroutine_threadsafe(
+                        asyncio.wait(list(self._async_tasks), timeout=1),
+                        self._loop,
+                    )
+                    fut.result(timeout=2)
+                    grace_handled = True
+                except Exception as exc:  # pragma: no cover - defensive
+                    worker = self._worker()
+                    if worker is not None:
+                        worker.logger.exception(exc)
+            else:
+
+                async def _grace_wait(tasks: list[asyncio.Task]):
+                    try:
+                        await asyncio.wait(tasks, timeout=1)
+                    except Exception as exc:  # pragma: no cover - defensive
+                        worker = self._worker()
+                        if worker is not None:
+                            worker.logger.exception(exc)
+                    finally:
+                        for task in list(tasks):
+                            self._cancel_and_await_task(task, True)
+
+                self._loop.create_task(_grace_wait(list(self._async_tasks)))
+                grace_handled = True
+
+        # Cancel and await all loop tasks
+        for task in list(self._loop_tasks):
+            self._cancel_and_await_task(task, is_running)
+
+        # Cancel and await async_call tasks
+        if not grace_handled:
+            for task in list(self._async_tasks):
+                self._cancel_and_await_task(task, is_running)
 
     @property
     def running(self) -> bool:
@@ -187,11 +331,13 @@ class LoopManager:
         if worker is not None:
             worker.logger.info("Starting loop manager")
 
-    def run_forever(self):
+    def run_forever(self, reset_loop: bool = False):
         try:
             running_loop = asyncio.get_running_loop()
         except RuntimeError:
             running_loop = None
+        if reset_loop:
+            self.reset_loop()
         asyncio.set_event_loop(self._loop)
         self._prerun()
 
@@ -215,6 +361,11 @@ class LoopManager:
             self.stop()
             if running_loop is not None:
                 asyncio.set_event_loop(running_loop)
+
+    def run_forever_threaded(self):
+        thread = threading.Thread(target=self.run_forever, kwargs={"reset_loop": True})
+        thread.start()
+        return thread
 
     async def run_forever_async(self):
         self._prerun()
