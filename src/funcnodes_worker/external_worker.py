@@ -57,6 +57,7 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
         workerid,
         config: Optional[Union[ExternalWorkerConfig, Dict[str, Any]]] = None,
         data_path: Optional[str] = None,
+        name: Optional[str] = None,
     ) -> None:
         """
         Initializes the FuncNodesExternalWorker class.
@@ -71,6 +72,8 @@ class FuncNodesExternalWorker(NodeClassMixin, EventEmitterMixin, CustomLoop):
         self._nodeshelf: Optional[Shelf] = None
         self._config = self.config_cls()
         self._data_path: Optional[Path] = Path(data_path) if data_path else None
+        if name:
+            self.name = name
         try:
             self.update_config(config)
         except Exception:

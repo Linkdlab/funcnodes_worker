@@ -271,7 +271,11 @@ class LocalWorkerLookupLoop(CustomLoop):
             self._client.logger.exception(e)
 
     def start_local_worker(
-        self, worker_class: Type[FuncNodesExternalWorker], worker_id: str
+        self,
+        worker_class: Type[FuncNodesExternalWorker],
+        worker_id: str,
+        name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
     ):
         if worker_class not in self.worker_classes:
             self.worker_classes.append(worker_class)
@@ -282,6 +286,8 @@ class LocalWorkerLookupLoop(CustomLoop):
         worker_instance: FuncNodesExternalWorker = worker_class(
             workerid=worker_id,
             data_path=self._client.data_path / "external_workers" / worker_id,
+            name=name,
+            config=config,
         )
 
         worker_instance.on(
@@ -1055,8 +1061,16 @@ class Worker(ABC):
     # endregion properties
 
     # region local worker
-    def add_local_worker(self, worker_class: Type[FuncNodesExternalWorker], nid: str):
-        w = self.local_worker_lookup_loop.start_local_worker(worker_class, nid)
+    def add_local_worker(
+        self,
+        worker_class: Type[FuncNodesExternalWorker],
+        nid: str,
+        name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        w = self.local_worker_lookup_loop.start_local_worker(
+            worker_class, nid, name=name, config=config
+        )
         self.loop_manager.async_call(self.worker_event("external_worker_update"))
         return w
 
@@ -1357,13 +1371,14 @@ class Worker(ABC):
                         if worker.NODECLASSID == worker_id:
                             for instance in worker_uuid:
                                 if isinstance(instance, str):
-                                    w = self.add_local_worker(worker, instance)
+                                    self.add_local_worker(worker, instance)
                                 else:
-                                    w = self.add_local_worker(worker, instance["uuid"])
-                                    if "name" in instance:
-                                        w.name = instance["name"]
-                                    if "config" in instance:
-                                        w.update_config(instance["config"])
+                                    self.add_local_worker(
+                                        worker,
+                                        nid=instance["uuid"],
+                                        name=instance.get("name", None),
+                                        config=instance.get("config", None),
+                                    )
                                 found = True
                     if not found:
                         self.logger.warning(f"External worker {worker_id} not found")
