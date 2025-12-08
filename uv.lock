@@ -474,7 +474,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes-worker"
-version = "1.4.0"
+version = "1.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "asynctoolkit" },
@@ -528,7 +528,7 @@ requires-dist = [
     { name = "funcnodes-worker", extras = ["venv", "http", "subprocess-monitor"], marker = "extra == 'all'" },
     { name = "packaging", specifier = ">=24.2" },
     { name = "pip", specifier = ">=25.0.1" },
-    { name = "pydantic", specifier = ">=2.12.4" },
+    { name = "pydantic", specifier = ">=2.0.0" },
     { name = "python-slugify", specifier = ">=8.0.4" },
     { name = "requests", marker = "extra == 'http'" },
     { name = "subprocess-monitor", marker = "extra == 'subprocess-monitor'", specifier = ">=0.3.0" },
