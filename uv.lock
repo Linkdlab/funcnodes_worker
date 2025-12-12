@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "sys_platform != 'emscripten'",
@@ -429,7 +429,7 @@ wheels = [
 
 [[package]]
 name = "funcnodes-core"
-version = "2.0.0"
+version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dill" },
@@ -439,9 +439,8 @@ dependencies = [
     { name = "setuptools" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/44/6ddee77de599ede9fe598106bec950790838103370fe812efe0548587d6b/funcnodes_core-2.0.0.tar.gz", hash = "sha256:73d5a9731b2d30ad98fe9c47d809de8a324dafcdbbc3701c86194c0d1b535b52", size = 190475, upload-time = "2025-11-27T18:51:11.954Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/bf/5f6652700e98a856e31bd80b608ca89c8f2b558c2a40c980c3cb39eefc16/funcnodes_core-2.0.0-py3-none-any.whl", hash = "sha256:6e42ef5065162adf09f3ffe2fff0fc5d1397235e98c670bdc8bf031bd0883e8d", size = 91624, upload-time = "2025-11-27T18:51:10.504Z" },
+    { url = "https://files.pythonhosted.org/packages/d4/ff/5f76caf509c614dde0f453cad55e4b890888618816a1a1e3b6f2b34e6c44/funcnodes_core-2.2.0-py3-none-any.whl", hash = "sha256:1a1d839dfe70f1c8ff2ba55abf6fc3c7875cd3de430432d2dc33b51e0c7a2ea1", size = 92765, upload-time = "2025-12-12T12:58:28.801Z" },
 ]
 
 [[package]]
@@ -524,7 +523,7 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'http'" },
     { name = "aiohttp-cors", marker = "extra == 'http'" },
     { name = "asynctoolkit", specifier = ">=0.1.1" },
-    { name = "funcnodes-core", specifier = ">=2.0.0" },
+    { name = "funcnodes-core", specifier = ">=2.2.0" },
     { name = "funcnodes-worker", extras = ["venv", "http", "subprocess-monitor"], marker = "extra == 'all'" },
     { name = "packaging", specifier = ">=24.2" },
     { name = "pip", specifier = ">=25.0.1" },
