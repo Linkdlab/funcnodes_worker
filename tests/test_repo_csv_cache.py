@@ -115,11 +115,6 @@ async def test_get_available_modules_does_not_block_on_remote(monkeypatch):
     from funcnodes_worker import Worker
     from funcnodes_worker.utils import modules as mod
 
-    mod.AVAILABLE_REPOS.clear()
-    cache_path = fn.config.get_config_dir() / "cache" / "funcnodes_modules.csv"
-    if cache_path.exists():
-        cache_path.unlink()
-
     class _SlowResp:
         async def text(self):
             await asyncio.sleep(0.5)
@@ -147,9 +142,14 @@ async def test_get_available_modules_does_not_block_on_remote(monkeypatch):
             return None
 
     worker = _TestWorker(uuid="TestWorker_nonblocking")
+    mod.AVAILABLE_REPOS.clear()
+    cache_path = fn.config.get_config_dir() / "cache" / "funcnodes_modules.csv"
+    if cache_path.exists():
+        cache_path.unlink()
+
     res = await worker.get_available_modules()
     assert res is not None
-    assert len(res["installed"]) + len(res["available"]) + len(res["active"]) == 0
+    assert len(res["available"]) + len(res["active"]) == 0
     assert mod._background_refresh_task is not None
 
     await asyncio.sleep(1)
@@ -157,4 +157,4 @@ async def test_get_available_modules_does_not_block_on_remote(monkeypatch):
     assert len(mod._background_refresh_callbacks) == 0
     res = await worker.get_available_modules()
     assert res is not None
-    assert len(res["installed"]) + len(res["available"]) + len(res["active"]) == 2
+    assert len(res["available"]) + len(res["active"]) == 2
