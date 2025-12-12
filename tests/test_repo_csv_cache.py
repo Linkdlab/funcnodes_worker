@@ -6,8 +6,8 @@ from pytest_funcnodes import funcnodes_test
 
 
 CSV_TEXT = """package_name,description,releases
-funcnodes-basic,Basic nodes,"0.1.0,0.2.0"
-funcnodes-numpy,Numpy nodes,"1.0.0"
+funcnodes-randompackageßnamefortestA,Basic nodes,"0.1.0,0.2.0"
+funcnodes-randompackageßnamefortestB,R2 nodes,"1.0.0"
 """
 
 
@@ -25,8 +25,11 @@ def test_load_cached_repo_csv_success():
     cache_path.write_text(CSV_TEXT, encoding="utf-8")
 
     assert mod.load_cached_repo_csv() is True
-    assert "funcnodes-basic" in mod.AVAILABLE_REPOS
-    assert mod.AVAILABLE_REPOS["funcnodes-basic"].description == "Basic nodes"
+    assert "funcnodes-randompackageßnamefortestA" in mod.AVAILABLE_REPOS
+    assert (
+        mod.AVAILABLE_REPOS["funcnodes-randompackageßnamefortestA"].description
+        == "Basic nodes"
+    )
 
 
 @funcnodes_test
@@ -52,7 +55,7 @@ async def test_load_repo_csv_falls_back_to_cache_on_remote_failure(monkeypatch):
     monkeypatch.setattr(mod.HTTPTool, "run", failing_run)
 
     await mod.load_repo_csv(use_cache=True, update_cache=True)
-    assert "funcnodes-numpy" in mod.AVAILABLE_REPOS
+    assert "funcnodes-randompackageßnamefortestB" in mod.AVAILABLE_REPOS
 
 
 @funcnodes_test
