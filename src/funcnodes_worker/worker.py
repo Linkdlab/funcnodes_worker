@@ -867,7 +867,15 @@ class Worker(ABC):
     async def update_from_config(self, config: dict):
         """updates the worker from a config dict"""
         self.logger.debug("Update from config")
-        await reload_base(with_repos=True)
+
+        async def on_repo_refresh(repos):
+            await self.worker_event("repos_update", repos=repos)
+
+        await reload_base(
+            with_repos=True,
+            background_repo_refresh=True,
+            repo_refresh_callback=on_repo_refresh,
+        )
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
@@ -1810,7 +1818,14 @@ class Worker(ABC):
 
     @exposed_method()
     async def get_available_modules(self):
-        await reload_base()
+        async def on_repo_refresh(repos):
+            await self.worker_event("repos_update", repos=repos)
+
+        await reload_base(
+            with_repos=True,
+            background_repo_refresh=True,
+            repo_refresh_callback=on_repo_refresh,
+        )
         ans = {
             "installed": [],
             "active": [],
