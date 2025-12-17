@@ -2,11 +2,18 @@ from __future__ import annotations
 import csv
 import importlib
 import importlib.metadata
+from datetime import datetime, timezone
+from pathlib import Path
 
 from typing import List, Optional, Dict
 from funcnodes_core import AVAILABLE_MODULES, setup, FUNCNODES_LOGGER
 from funcnodes_core._setup import setup_module
 from funcnodes_core.utils.plugins import InstalledModule
+from funcnodes_core.utils.cache import (
+    get_cache_path,
+    set_cache_meta_for,
+    write_cache_text,
+)
 from dataclasses import dataclass, field
 import logging
 from asynctoolkit.defaults.http import HTTPTool
@@ -89,39 +96,139 @@ def version_to_range(version: str) -> str:
 AVAILABLE_REPOS: Dict[str, AvailableRepo] = {}
 
 
-async def load_repo_csv():
-    """
-    Load repository metadata from a remote CSV file and update AVAILABLE_REPOS.
-    """
+REPO_CSV_URL = "https://raw.githubusercontent.com/Linkdlab/funcnodes_repositories/refs/heads/main/funcnodes_modules.csv"
 
-    url = "https://raw.githubusercontent.com/Linkdlab/funcnodes_repositories/refs/heads/main/funcnodes_modules.csv"
 
-    try:
-        async with await HTTPTool().run(url=url) as resp:
-            text = await resp.text()
-    except Exception as e:
-        FUNCNODES_LOGGER.exception(e)
-        return
+def get_cached_csv_path() -> Path:
+    return get_cache_path("funcnodes_modules.csv")
 
-    # Read the CSV data into a dictionary reader
+
+def _parse_repo_csv(text: str):
+    """Parse CSV text and update AVAILABLE_REPOS."""
     reader = csv.DictReader(text.splitlines(), delimiter=",")
     for line in reader:
         try:
-            # Create an AvailableRepo instance from the CSV row
             data = AvailableRepo.from_dict(line)
             if data.package_name in AVAILABLE_REPOS:
-                # If there is existing module data, carry it over.
                 moddata = AVAILABLE_REPOS[data.package_name].moduledata
                 data.moduledata = moddata
             if data.moduledata:
-                # Mark as installed if module data is present.
                 data.installed = True
-            # Update the global dictionary with this repository info
             AVAILABLE_REPOS[data.package_name] = data
-
         except Exception as e:
-            # Log any exceptions that occur during parsing
             FUNCNODES_LOGGER.exception(e)
+
+
+def load_cached_repo_csv() -> bool:
+    """
+    Load repository data from local cache.
+    Returns True if cache was loaded successfully, False otherwise.
+    """
+    cache_path = get_cached_csv_path()
+    if not cache_path.exists():
+        return False
+
+    try:
+        text = cache_path.read_text(encoding="utf-8")
+        _parse_repo_csv(text)
+        FUNCNODES_LOGGER.debug("Loaded repository data from cache")
+        return True
+    except Exception as e:
+        FUNCNODES_LOGGER.warning(f"Failed to load cached repo CSV: {e}")
+        return False
+
+
+def save_repo_csv_to_cache(text: str):
+    """Save repository CSV data to local cache."""
+    cache_path = get_cached_csv_path()
+    try:
+        write_cache_text(cache_path, text)
+        meta = {
+            "last_updated": datetime.now(timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "source_url": REPO_CSV_URL,
+        }
+        set_cache_meta_for(cache_path, meta)
+        FUNCNODES_LOGGER.debug("Saved repository data to cache")
+    except Exception as e:
+        FUNCNODES_LOGGER.warning(f"Failed to save repo CSV to cache: {e}")
+
+
+_background_refresh_task: Optional[asyncio.Task] = None
+_background_refresh_callbacks: List = []
+
+
+async def refresh_repo_csv_background():
+    """
+    Refresh repository CSV in the background.
+
+    Any callbacks registered via start_background_repo_refresh will be invoked on success.
+    """
+    global _background_refresh_task
+    global _background_refresh_callbacks
+
+    callbacks: List = _background_refresh_callbacks
+    try:
+        async with await HTTPTool().run(url=REPO_CSV_URL) as resp:
+            text = await resp.text()
+
+        _parse_repo_csv(text)
+        save_repo_csv_to_cache(text)
+
+    except Exception as e:
+        FUNCNODES_LOGGER.debug(f"Background repo refresh failed: {e}")
+        callbacks = []
+    finally:
+        _background_refresh_task = None
+        _background_refresh_callbacks = []
+
+    for cb in callbacks:
+        try:
+            res = cb(AVAILABLE_REPOS)
+            if asyncio.iscoroutine(res):
+                await res
+        except Exception as e:
+            FUNCNODES_LOGGER.debug(f"Repo refresh callback failed: {e}")
+
+
+def start_background_repo_refresh(callback=None):
+    """Start a background task to refresh the repo CSV."""
+    global _background_refresh_task
+
+    if callback is not None:
+        _background_refresh_callbacks.append(callback)
+
+    if _background_refresh_task is not None:
+        return _background_refresh_task
+
+    _background_refresh_task = asyncio.create_task(refresh_repo_csv_background())
+    return _background_refresh_task
+
+
+async def load_repo_csv(use_cache: bool = True, update_cache: bool = True):
+    """
+    Load repository metadata from a remote CSV file and update AVAILABLE_REPOS.
+    """
+    cache_loaded = False
+    if use_cache:
+        cache_loaded = load_cached_repo_csv()
+        if cache_loaded and not update_cache:
+            return
+
+    try:
+        async with await HTTPTool().run(url=REPO_CSV_URL) as resp:
+            text = await resp.text()
+
+        _parse_repo_csv(text)
+
+        if update_cache:
+            save_repo_csv_to_cache(text)
+
+    except Exception as e:
+        FUNCNODES_LOGGER.exception(e)
+        if use_cache and not cache_loaded:
+            load_cached_repo_csv()
 
 
 async def install_package(
@@ -328,7 +435,13 @@ def try_import_repo(name: str) -> Optional[AvailableRepo]:
     return None
 
 
-async def reload_base(with_repos=True, retries=2, retries_delay=1):
+async def reload_base(
+    with_repos: bool = True,
+    retries: int = 2,
+    retries_delay: float = 1,
+    background_repo_refresh: bool = False,
+    repo_refresh_callback=None,
+):
     """
     Reload the core setup and update repository/module information.
 
@@ -349,11 +462,12 @@ async def reload_base(with_repos=True, retries=2, retries_delay=1):
         - Exception: If the core setup fails after all retries.
     """
     # Initialize or refresh the core setup
-    retries = min(retries, 0)
+    retries = max(retries, 0)
     while retries >= 0:
         retries -= 1
         try:
             setup()
+            break
         except Exception as e:
             if retries < 0:
                 raise e
@@ -361,10 +475,14 @@ async def reload_base(with_repos=True, retries=2, retries_delay=1):
             continue
 
     if with_repos:
-        try:
-            await load_repo_csv()
-        except Exception:
-            pass
+        if background_repo_refresh:
+            load_cached_repo_csv()
+            start_background_repo_refresh(callback=repo_refresh_callback)
+        else:
+            try:
+                await load_repo_csv(use_cache=True, update_cache=True)
+            except Exception:
+                pass
     # Update the 'installed' flag for each repo based on the presence of module data
     for repo in AVAILABLE_REPOS.values():
         if repo.moduledata:
