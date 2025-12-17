@@ -621,13 +621,12 @@ class Worker(ABC):
         self.viewdata: ViewState = {
             "renderoptions": fn.config.FUNCNODES_RENDER_OPTIONS,
         }
-        self._uuid = (
-            (slugify(name)[:16] + "_" + uuid4().hex[:16])
-            if name
-            else uuid4().hex
-            if not uuid
-            else uuid
-        )
+        if uuid:
+            self._uuid = uuid
+        elif name:
+            self._uuid = f"{slugify(name)[:16]}_{uuid4().hex[:16]}"
+        else:
+            self._uuid = uuid4().hex
         self._name = name or None
         self._WORKERS_DIR: Path = get_workers_dir()
         self._WORKER_DIR: Path = get_worker_dir(self.uuid())
@@ -867,7 +866,15 @@ class Worker(ABC):
     async def update_from_config(self, config: dict):
         """updates the worker from a config dict"""
         self.logger.debug("Update from config")
-        await reload_base(with_repos=True)
+
+        async def on_repo_refresh(repos):
+            await self.worker_event("repos_update", repos=repos)
+
+        await reload_base(
+            with_repos=True,
+            background_repo_refresh=True,
+            repo_refresh_callback=on_repo_refresh,
+        )
         if "package_dependencies" in config:
             for name, dep in config["package_dependencies"].items():
                 try:
@@ -1810,7 +1817,14 @@ class Worker(ABC):
 
     @exposed_method()
     async def get_available_modules(self):
-        await reload_base()
+        async def on_repo_refresh(repos):
+            await self.worker_event("repos_update", repos=repos)
+
+        await reload_base(
+            with_repos=True,
+            background_repo_refresh=True,
+            repo_refresh_callback=on_repo_refresh,
+        )
         ans = {
             "installed": [],
             "active": [],

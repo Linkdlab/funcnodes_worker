@@ -152,13 +152,20 @@ class LoopManager:
             self._loop.is_running()
         )  # and asyncio.get_event_loop() == self._loop
 
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
         if loop.running and not self._loop.is_closed():
             loop._running = False  # set this to false prevent recursion
             try:
-                if not is_running:
-                    self._loop.run_until_complete(loop.stop())
-                else:
+                if is_running:
                     _ = self.async_call(loop.stop())
+                elif running_loop is not None:
+                    running_loop.create_task(loop.stop())
+                else:
+                    self._loop.run_until_complete(loop.stop())
             except Exception as e:
                 worker = self._worker()
                 if worker is not None:
@@ -198,18 +205,36 @@ class LoopManager:
         task.cancel()
 
         waiter = _wait_cancel(task)
-        if not is_running and not self._loop.is_closed():
-            try:
-                self._loop.run_until_complete(waiter)
-            except Exception as exc:  # pragma: no cover - defensive
-                worker = self._worker()
-                if worker is not None:
-                    worker.logger.exception(exc)
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        task_loop = task.get_loop()
+
+        if task_loop.is_running():
+            if running_loop is task_loop:
+                task_loop.create_task(waiter)
+            else:
+                # task loop runs in another thread
+                asyncio.run_coroutine_threadsafe(waiter, task_loop)
+            return
+
+        if not task_loop.is_closed():
+            if running_loop is not None and running_loop is not task_loop:
+                # Avoid run_until_complete when another loop is already running
+                running_loop.create_task(waiter)
+            else:
+                try:
+                    task_loop.run_until_complete(waiter)
+                except Exception as exc:  # pragma: no cover - defensive
+                    worker = self._worker()
+                    if worker is not None:
+                        worker.logger.exception(exc)
         else:
-            scheduled = self.async_call(waiter)
-            if scheduled is None:
-                # no loop to schedule on; close coroutine to avoid "never awaited"
-                waiter.close()
+            # loop is closed; close coroutine to silence warnings
+            waiter.close()
 
     def async_call(self, croutine: asyncio.Coroutine):
         # Check if the loop is closed or not running
