@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.5.0 (2025-12-17)
+
+### Feat
+
+- **modules**: enhance repository CSV handling with caching and background refresh
+
+### Fix
+
+- **loop**: improve task handling in LoopManager for better coroutine management
+
+### Refactor
+
+- **worker**: simplify UUID generation logic in Worker class
+- **tests**: streamline test_get_available_modules_does_not_block_on_remote
+
 ## 1.4.0 (2025-12-05)
 
 ### Feat
