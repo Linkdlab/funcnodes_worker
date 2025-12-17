@@ -621,13 +621,12 @@ class Worker(ABC):
         self.viewdata: ViewState = {
             "renderoptions": fn.config.FUNCNODES_RENDER_OPTIONS,
         }
-        self._uuid = (
-            (slugify(name)[:16] + "_" + uuid4().hex[:16])
-            if name
-            else uuid4().hex
-            if not uuid
-            else uuid
-        )
+        if uuid:
+            self._uuid = uuid
+        elif name:
+            self._uuid = f"{slugify(name)[:16]}_{uuid4().hex[:16]}"
+        else:
+            self._uuid = uuid4().hex
         self._name = name or None
         self._WORKERS_DIR: Path = get_workers_dir()
         self._WORKER_DIR: Path = get_worker_dir(self.uuid())
