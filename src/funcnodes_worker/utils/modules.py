@@ -1,11 +1,12 @@
 from __future__ import annotations
+from collections.abc import Callable
 import csv
 import importlib
 import importlib.metadata
 from datetime import datetime, timezone
 from pathlib import Path
 
-from typing import List, Optional, Dict
+from typing import Any, Awaitable, List, Optional, Dict, Union
 from funcnodes_core import AVAILABLE_MODULES, setup, FUNCNODES_LOGGER
 from funcnodes_core._setup import setup_module
 from funcnodes_core.utils.plugins import InstalledModule
@@ -74,6 +75,23 @@ class AvailableRepo:
 
         # Only pass the keys that are defined in the dataclass fields
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+    def _repr_json_(self) -> dict[str, Any]:
+        return {
+            "package_name": self.package_name,
+            "installed": self.installed,
+            "version": self.version,
+            "description": self.description,
+            "entry_point__module": self.entry_point__module,
+            "entry_point__shelf": self.entry_point__shelf,
+            "entry_point__external_worker": self.entry_point__external_worker,
+            "moduledata": self.moduledata._repr_json_() if self.moduledata else None,
+            "last_updated": self.last_updated,
+            "homepage": self.homepage,
+            "source": self.source,
+            "summary": self.summary,
+            "releases": self.releases,
+        }
 
 
 def version_string_to_Specifier(version: str) -> Specifier:
@@ -156,7 +174,9 @@ def save_repo_csv_to_cache(text: str):
 
 
 _background_refresh_task: Optional[asyncio.Task] = None
-_background_refresh_callbacks: List = []
+_background_refresh_callbacks: List[
+    Callable[[Dict[str, AvailableRepo]], Union[None, Awaitable[None]]]
+] = []
 
 
 async def refresh_repo_csv_background():
@@ -168,7 +188,7 @@ async def refresh_repo_csv_background():
     global _background_refresh_task
     global _background_refresh_callbacks
 
-    callbacks: List = _background_refresh_callbacks
+    callbacks = _background_refresh_callbacks
     try:
         async with await HTTPTool().run(url=REPO_CSV_URL) as resp:
             text = await resp.text()
@@ -189,10 +209,14 @@ async def refresh_repo_csv_background():
             if asyncio.iscoroutine(res):
                 await res
         except Exception as e:
-            FUNCNODES_LOGGER.debug(f"Repo refresh callback failed: {e}")
+            FUNCNODES_LOGGER.debug(f"Repo refresh callback failed: {e}, callback: {cb}")
 
 
-def start_background_repo_refresh(callback=None):
+def start_background_repo_refresh(
+    callback: Optional[
+        Callable[[Dict[str, AvailableRepo]], Union[None, Awaitable[None]]]
+    ] = None,
+):
     """Start a background task to refresh the repo CSV."""
     global _background_refresh_task
 
@@ -440,7 +464,9 @@ async def reload_base(
     retries: int = 2,
     retries_delay: float = 1,
     background_repo_refresh: bool = False,
-    repo_refresh_callback=None,
+    repo_refresh_callback: Optional[
+        Callable[[Dict[str, AvailableRepo]], Union[None, Awaitable[None]]]
+    ] = None,
 ):
     """
     Reload the core setup and update repository/module information.
