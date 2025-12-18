@@ -75,6 +75,7 @@ from ._opts import (
 )
 from .utils.modules import (
     AVAILABLE_REPOS,
+    AvailableRepo,
     reload_base,
     install_repo,
     try_import_module,
@@ -867,7 +868,7 @@ class Worker(ABC):
         """updates the worker from a config dict"""
         self.logger.debug("Update from config")
 
-        async def on_repo_refresh(repos):
+        async def on_repo_refresh(repos: Dict[str, AvailableRepo]):
             await self.worker_event("repos_update", repos=repos)
 
         await reload_base(
@@ -1817,7 +1818,7 @@ class Worker(ABC):
 
     @exposed_method()
     async def get_available_modules(self):
-        async def on_repo_refresh(repos):
+        async def on_repo_refresh(repos: Dict[str, AvailableRepo]):
             await self.worker_event("repos_update", repos=repos)
 
         await reload_base(

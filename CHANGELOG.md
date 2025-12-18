@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1 (2025-12-18)
+
+### Refactor
+
+- **worker, modules**: enhance type annotations and add JSON representation for AvailableRepo
+
 ## 1.5.0 (2025-12-17)
 
 ### Feat
