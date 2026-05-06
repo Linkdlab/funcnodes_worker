@@ -249,6 +249,7 @@ async def test_worker_case_config_generation(worker_case):
         "pid": os.getpid(),
         "type": worker_case.__class__.__name__,
         "env_path": None,
+        "autostart": False,
         "update_on_startup": {
             "funcnodes": True,
             "funcnodes-core": True,
@@ -266,6 +267,7 @@ async def test_worker_case_exportable_config(worker_case):
         "name": worker_case.name(),
         "package_dependencies": {},
         "type": worker_case.__class__.__name__,
+        "autostart": False,
         "update_on_startup": {
             "funcnodes": True,
             "funcnodes-core": True,
@@ -289,6 +291,16 @@ async def test_worker_case_load_config(worker_case):
     config = worker_case.load_config()
     assert config is not None
     assert config["uuid"] == worker_case.uuid()
+
+
+@funcnodes_test
+async def test_worker_case_missing_autostart_defaults_false(worker_case):
+    config = worker_case.config
+    config.pop("autostart", None)
+
+    updated = worker_case.update_config(config)
+
+    assert updated["autostart"] is False
 
 
 @funcnodes_test

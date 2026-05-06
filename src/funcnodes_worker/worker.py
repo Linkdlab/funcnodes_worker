@@ -548,6 +548,7 @@ class WorkerJson(TypedDict):
     data_path: Optional[str]
     env_path: Optional[str]
     pid: Optional[int]
+    autostart: bool
 
     # shelves_dependencies: Dict[str, ShelfDict]
     worker_dependencies: Dict[str, WorkerDict]
@@ -770,6 +771,7 @@ class Worker(ABC):
                 worker_dependencies=worker_dependencies,
                 package_dependencies=self._package_dependencies.copy(),
                 pid=os.getpid(),
+                autostart=False,
                 update_on_startup={},
             )
         )
@@ -784,6 +786,9 @@ class Worker(ABC):
 
         if "update_on_startup" not in conf:
             conf["update_on_startup"] = {}  # pragma: no cover
+
+        if "autostart" not in conf:
+            conf["autostart"] = False
 
         if "funcnodes" not in conf["update_on_startup"]:
             conf["update_on_startup"]["funcnodes"] = True  # pragma: no cover
