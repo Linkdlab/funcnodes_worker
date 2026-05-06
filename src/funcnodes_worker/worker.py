@@ -541,6 +541,29 @@ class PossibleUpdates(TypedDict, total=False):
     funcnodes: bool
 
 
+AutostartPolicy = Literal["never", "always", "unless-stopped"]
+AUTOSTART_POLICIES: tuple[AutostartPolicy, ...] = (
+    "never",
+    "always",
+    "unless-stopped",
+)
+
+
+def normalize_autostart_policy(value: object = None) -> AutostartPolicy:
+    if value is True:
+        return "unless-stopped"
+    if value in (False, None):
+        return "never"
+    if isinstance(value, str):
+        if value in AUTOSTART_POLICIES:
+            return cast(AutostartPolicy, value)
+        raise ValueError(
+            "Invalid autostart policy "
+            f"{value!r}. Expected one of {', '.join(AUTOSTART_POLICIES)}."
+        )
+    raise ValueError(f"Invalid autostart policy {value!r}.")
+
+
 class WorkerJson(TypedDict):
     type: str
     uuid: str
@@ -548,7 +571,7 @@ class WorkerJson(TypedDict):
     data_path: Optional[str]
     env_path: Optional[str]
     pid: Optional[int]
-    autostart: bool
+    autostart: AutostartPolicy
 
     # shelves_dependencies: Dict[str, ShelfDict]
     worker_dependencies: Dict[str, WorkerDict]
@@ -771,7 +794,7 @@ class Worker(ABC):
                 worker_dependencies=worker_dependencies,
                 package_dependencies=self._package_dependencies.copy(),
                 pid=os.getpid(),
-                autostart=False,
+                autostart="never",
                 update_on_startup={},
             )
         )
@@ -787,8 +810,7 @@ class Worker(ABC):
         if "update_on_startup" not in conf:
             conf["update_on_startup"] = {}  # pragma: no cover
 
-        if "autostart" not in conf:
-            conf["autostart"] = False
+        conf["autostart"] = normalize_autostart_policy(conf.get("autostart"))
 
         if "funcnodes" not in conf["update_on_startup"]:
             conf["update_on_startup"]["funcnodes"] = True  # pragma: no cover
@@ -989,7 +1011,7 @@ class Worker(ABC):
     def update_worker_config(
         self,
         name: Optional[str] = None,
-        autostart: Optional[bool] = None,
+        autostart: Optional[AutostartPolicy | bool] = None,
         update_on_startup: Optional[PossibleUpdates] = None,
     ) -> WorkerJson:
         """updates editable worker configuration values"""
@@ -1001,7 +1023,7 @@ class Worker(ABC):
             config["name"] = self._name
 
         if autostart is not None:
-            config["autostart"] = bool(autostart)
+            config["autostart"] = normalize_autostart_policy(autostart)
 
         if update_on_startup is not None:
             current_update_on_startup = config.get("update_on_startup", {})

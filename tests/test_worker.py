@@ -249,7 +249,7 @@ async def test_worker_case_config_generation(worker_case):
         "pid": os.getpid(),
         "type": worker_case.__class__.__name__,
         "env_path": None,
-        "autostart": False,
+        "autostart": "never",
         "update_on_startup": {
             "funcnodes": True,
             "funcnodes-core": True,
@@ -267,7 +267,7 @@ async def test_worker_case_exportable_config(worker_case):
         "name": worker_case.name(),
         "package_dependencies": {},
         "type": worker_case.__class__.__name__,
-        "autostart": False,
+        "autostart": "never",
         "update_on_startup": {
             "funcnodes": True,
             "funcnodes-core": True,
@@ -294,25 +294,34 @@ async def test_worker_case_load_config(worker_case):
 
 
 @funcnodes_test
-async def test_worker_case_missing_autostart_defaults_false(worker_case):
+async def test_worker_case_missing_autostart_defaults_never(worker_case):
     config = worker_case.config
     config.pop("autostart", None)
 
     updated = worker_case.update_config(config)
 
-    assert updated["autostart"] is False
+    assert updated["autostart"] == "never"
+
+
+@funcnodes_test
+async def test_worker_case_legacy_autostart_booleans_migrate(worker_case):
+    true_config = worker_case.update_config({**worker_case.config, "autostart": True})
+    false_config = worker_case.update_config({**worker_case.config, "autostart": False})
+
+    assert true_config["autostart"] == "unless-stopped"
+    assert false_config["autostart"] == "never"
 
 
 @funcnodes_test
 async def test_worker_case_update_worker_config(worker_case):
     updated = worker_case.update_worker_config(
         name="renamed worker",
-        autostart=True,
+        autostart="unless-stopped",
         update_on_startup={"funcnodes": False},
     )
 
     assert updated["name"] == "renamed worker"
-    assert updated["autostart"] is True
+    assert updated["autostart"] == "unless-stopped"
     assert updated["update_on_startup"]["funcnodes"] is False
     assert updated["update_on_startup"]["funcnodes-core"] is True
     assert worker_case.name() == "renamed worker"
@@ -320,7 +329,7 @@ async def test_worker_case_update_worker_config(worker_case):
     loaded = worker_case.load_config()
     assert loaded is not None
     assert loaded["name"] == "renamed worker"
-    assert loaded["autostart"] is True
+    assert loaded["autostart"] == "unless-stopped"
 
 
 @funcnodes_test
