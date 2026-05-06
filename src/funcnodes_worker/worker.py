@@ -981,6 +981,38 @@ class Worker(ABC):
         return zip_bytes
 
     @exposed_method()
+    def get_config(self) -> WorkerJson:
+        """returns the current worker configuration"""
+        return self.update_config(self.config)
+
+    @exposed_method()
+    def update_worker_config(
+        self,
+        name: Optional[str] = None,
+        autostart: Optional[bool] = None,
+        update_on_startup: Optional[PossibleUpdates] = None,
+    ) -> WorkerJson:
+        """updates editable worker configuration values"""
+        config = self.update_config(self.config)
+
+        if name is not None:
+            stripped_name = name.strip()
+            self._name = stripped_name or None
+            config["name"] = self._name
+
+        if autostart is not None:
+            config["autostart"] = bool(autostart)
+
+        if update_on_startup is not None:
+            current_update_on_startup = config.get("update_on_startup", {})
+            current_update_on_startup.update(
+                {key: bool(value) for key, value in update_on_startup.items()}
+            )
+            config["update_on_startup"] = current_update_on_startup
+
+        return self.write_config(config)
+
+    @exposed_method()
     async def update(
         self,
         config: Union[str, dict, None] = None,

@@ -304,6 +304,26 @@ async def test_worker_case_missing_autostart_defaults_false(worker_case):
 
 
 @funcnodes_test
+async def test_worker_case_update_worker_config(worker_case):
+    updated = worker_case.update_worker_config(
+        name="renamed worker",
+        autostart=True,
+        update_on_startup={"funcnodes": False},
+    )
+
+    assert updated["name"] == "renamed worker"
+    assert updated["autostart"] is True
+    assert updated["update_on_startup"]["funcnodes"] is False
+    assert updated["update_on_startup"]["funcnodes-core"] is True
+    assert worker_case.name() == "renamed worker"
+
+    loaded = worker_case.load_config()
+    assert loaded is not None
+    assert loaded["name"] == "renamed worker"
+    assert loaded["autostart"] is True
+
+
+@funcnodes_test
 async def test_worker_case_process_file_handling(worker_case):
     worker_case._write_process_file()
     process_file = worker_case._process_file
