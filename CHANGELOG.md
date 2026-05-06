@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.0 (2026-05-06)
+
+### Feat
+
+- **worker**: enhance autostart configuration with new policy options
+- **worker**: add methods to get and update worker configuration
+- **worker**: add autostart configuration option with default value
+
 ## 1.5.1 (2025-12-18)
 
 ### Refactor
