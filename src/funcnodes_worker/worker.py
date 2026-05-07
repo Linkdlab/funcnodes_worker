@@ -2632,6 +2632,72 @@ class Worker(ABC):
 
         return nodespace.groups.get_all_groups()
 
+    @requests_save
+    @exposed_method()
+    def group_nodes_as_node_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        node_ids: List[str],
+        group_id: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> FullNodeJSON:
+        """Create an executable `GroupNode` in the resolved nodespace path.
+
+        Args:
+            path: Frontend path to the root or nested executable group
+                nodespace that owns the selected nodes.
+            node_ids: UUIDs of nodes to replace with one executable group.
+            group_id: Optional UUID for the created `GroupNode`.
+            name: Optional display name for the created `GroupNode`.
+
+        Returns:
+            Serialized state for the created executable group node.
+        """
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        group = nodespace.group_nodes_as_node(
+            node_ids, group_id=group_id, name=name
+        )
+        return group._repr_json_()
+
+    @requests_save
+    @exposed_method()
+    def ungroup_node_at_path(
+        self, path: List[NodeSpacePathEntry], group_node_id: str
+    ) -> List[FullNodeJSON]:
+        """Expand one executable `GroupNode` in the resolved nodespace path.
+
+        Args:
+            path: Frontend path to the nodespace containing the group node.
+            group_node_id: UUID of the executable group node to expand.
+
+        Returns:
+            Serialized states for the nodes restored into the parent nodespace.
+        """
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        restored_nodes = nodespace.ungroup_node(group_node_id)
+        return [node._repr_json_() for node in restored_nodes]
+
+    @requests_save
+    @exposed_method()
+    def materialize_group_at_path(
+        self, path: List[NodeSpacePathEntry], legacy_group_id: str
+    ) -> FullNodeJSON:
+        """Convert one legacy UI group into an executable `GroupNode`.
+
+        Args:
+            path: Frontend path to the nodespace containing the legacy group.
+            legacy_group_id: ID of the legacy visual group metadata entry.
+
+        Returns:
+            Serialized state for the created executable group node.
+        """
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        group = nodespace.materialize_group(legacy_group_id)
+        return group._repr_json_()
+
     @exposed_method()
     def get_groups(self):
         return self.nodespace.groups.serialize()

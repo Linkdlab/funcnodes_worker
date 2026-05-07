@@ -529,6 +529,78 @@ async def test_worker_io_value_at_path_targets_group_internal_node(worker_case):
 
 
 @funcnodes_test
+async def test_worker_group_nodes_as_node_at_path_creates_nested_group(worker_case):
+    """Executable grouping should target the resolved active nodespace path."""
+
+    outer = fn.GroupNode(uuid="outer-group", name="Outer Group")
+    first = testnode(uuid="inner-first", trigger_on_create=False)
+    second = testnode(uuid="inner-second", trigger_on_create=False)
+    outer.inner_nodespace.add_node_instance(first)
+    outer.inner_nodespace.add_node_instance(second)
+    worker_case.nodespace.add_node_instance(outer)
+
+    created = worker_case.group_nodes_as_node_at_path(
+        [{"groupNodeId": "outer-group", "label": "Outer Group"}],
+        ["inner-first", "inner-second"],
+        name="Nested Group",
+    )
+
+    nested_group = outer.inner_nodespace.get_node_by_id(created["id"])
+    assert isinstance(nested_group, fn.GroupNode)
+    assert nested_group.name == "Nested Group"
+    assert {node.uuid for node in nested_group.inner_nodespace.nodes}.issuperset(
+        {"inner-first", "inner-second"}
+    )
+
+
+@funcnodes_test
+async def test_worker_ungroup_node_at_path_restores_nested_group_nodes(worker_case):
+    """Executable ungrouping should target the resolved active nodespace path."""
+
+    outer = fn.GroupNode(uuid="outer-group", name="Outer Group")
+    first = testnode(uuid="inner-first", trigger_on_create=False)
+    second = testnode(uuid="inner-second", trigger_on_create=False)
+    outer.inner_nodespace.add_node_instance(first)
+    outer.inner_nodespace.add_node_instance(second)
+    nested = outer.inner_nodespace.group_nodes_as_node(
+        ["inner-first", "inner-second"], group_id="nested-group"
+    )
+    worker_case.nodespace.add_node_instance(outer)
+
+    restored = worker_case.ungroup_node_at_path(
+        [{"groupNodeId": "outer-group", "label": "Outer Group"}],
+        nested.uuid,
+    )
+
+    assert {node["id"] for node in restored} == {"inner-first", "inner-second"}
+    assert outer.inner_nodespace.get_node_by_id("inner-first") is first
+    assert outer.inner_nodespace.get_node_by_id("inner-second") is second
+
+
+@funcnodes_test
+async def test_worker_materialize_group_at_path_converts_legacy_group(worker_case):
+    """Legacy UI group materialization should be explicit and path-aware."""
+
+    outer = fn.GroupNode(uuid="outer-group", name="Outer Group")
+    first = testnode(uuid="inner-first", trigger_on_create=False)
+    second = testnode(uuid="inner-second", trigger_on_create=False)
+    outer.inner_nodespace.add_node_instance(first)
+    outer.inner_nodespace.add_node_instance(second)
+    outer.inner_nodespace.groups.group_together(
+        ["inner-first", "inner-second"], [], new_group_id="legacy"
+    )
+    worker_case.nodespace.add_node_instance(outer)
+
+    created = worker_case.materialize_group_at_path(
+        [{"groupNodeId": "outer-group", "label": "Outer Group"}],
+        "legacy",
+    )
+
+    assert isinstance(outer.inner_nodespace.get_node_by_id(created["id"]), fn.GroupNode)
+    assert "legacy" not in outer.inner_nodespace.groups.get_all_groups()
+
+
+@funcnodes_test
 async def test_worker_remove_node(worker_case):
     node = create_test_node(worker_case)
     worker_case.remove_node(node.uuid)
