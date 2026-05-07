@@ -1377,6 +1377,20 @@ class Worker(ABC):
             nodespace = node.inner_nodespace
         return nodespace, normalized_path
 
+    def _get_node_at_path(self, path: List[NodeSpacePathEntry], nid: str) -> Node:
+        """Return a node from the root or nested executable group nodespace.
+
+        Args:
+            path: Ordered executable group path from the root nodespace.
+            nid: Node UUID inside the resolved nodespace.
+
+        Returns:
+            The matching node instance from the resolved nodespace.
+        """
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        return nodespace.get_node_by_id(nid)
+
     @exposed_method()
     def get_nodespace_at_path(
         self, path: List[NodeSpacePathEntry]
@@ -1999,6 +2013,16 @@ class Worker(ABC):
     def add_node(self, id: str, **kwargs: Dict[str, Any]):
         return self.nodespace.add_node_by_id(id, **kwargs)
 
+    @requests_save
+    @exposed_method()
+    def add_node_at_path(
+        self, path: List[NodeSpacePathEntry], id: str, **kwargs: Dict[str, Any]
+    ):
+        """Add a node to the root or nested executable group nodespace."""
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        return nodespace.add_node_by_id(id, **kwargs)
+
     @exposed_method()
     def get_node(self, id: str) -> Node:
         return self.nodespace.get_node_by_id(id)
@@ -2008,6 +2032,16 @@ class Worker(ABC):
     def remove_node(self, id: str) -> Union[str, None]:
         return self.nodespace.remove_node_by_id(id)
 
+    @requests_save
+    @exposed_method()
+    def remove_node_at_path(
+        self, path: List[NodeSpacePathEntry], id: str
+    ) -> Union[str, None]:
+        """Remove a node from the root or nested executable group nodespace."""
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        return nodespace.remove_node_by_id(id)
+
     @exposed_method()
     def trigger_node(self, nid: str):
         node = self.get_node(nid)
@@ -2015,8 +2049,23 @@ class Worker(ABC):
         return True
 
     @exposed_method()
+    def trigger_node_at_path(self, path: List[NodeSpacePathEntry], nid: str):
+        """Request a trigger for a node in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
+        node.request_trigger()
+        return True
+
+    @exposed_method()
     def get_node_status(self, nid: str):
         node = self.get_node(nid)
+        return node.status()
+
+    @exposed_method()
+    def get_node_status_at_path(self, path: List[NodeSpacePathEntry], nid: str):
+        """Return the status for a node in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
         return node.status()
 
     @requests_save
@@ -2033,8 +2082,25 @@ class Worker(ABC):
         return node._repr_json_()
 
     @exposed_method()
+    def get_node_state_at_path(
+        self, path: List[NodeSpacePathEntry], nid: str
+    ) -> FullNodeJSON:
+        """Return serialized state for a node in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
+        return node._repr_json_()
+
+    @exposed_method()
     def request_trigger(self, nid: str):
         node = self.get_node(nid)
+        node.request_trigger()
+        return True
+
+    @exposed_method()
+    def request_trigger_at_path(self, path: List[NodeSpacePathEntry], nid: str):
+        """Request a trigger for a node in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
         node.request_trigger()
         return True
 
@@ -2043,6 +2109,40 @@ class Worker(ABC):
     def update_node(self, nid: str, data: NodeJSON):
         try:
             node = self.get_node(nid)
+        except Exception:
+            return {"error": f"Node with id {nid} not found"}
+        if not node:
+            raise ValueError(f"Node with id {nid} not found")
+        ans = {}
+
+        for k, v in data.get("properties", {}).items():
+            node.set_property(k, v)
+
+        if "name" in data:
+            n = data["name"]
+            node.name = n
+            ans["name"] = node.name
+
+        if "description" in data:
+            d = data["description"]
+            node.description = str(d)
+            ans["description"] = node.description
+
+        if "reset_inputs_on_trigger" in data:
+            node.reset_inputs_on_trigger = data["reset_inputs_on_trigger"]
+            ans["reset_inputs_on_trigger"] = node.reset_inputs_on_trigger
+
+        return ans
+
+    @requests_save
+    @exposed_method()
+    def update_node_at_path(
+        self, path: List[NodeSpacePathEntry], nid: str, data: NodeJSON
+    ):
+        """Update node metadata and frontend properties in a nodespace path."""
+
+        try:
+            node = self._get_node_at_path(path, nid)
         except Exception:
             return {"error": f"Node with id {nid} not found"}
         if not node:
@@ -2093,6 +2193,32 @@ class Worker(ABC):
 
     @requests_save
     @exposed_method()
+    def update_io_options_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        nid: str,
+        ioid: str,
+        name: Optional[str] = None,
+        hidden: Optional[bool] = None,
+    ):
+        """Update input or output display options in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
+        io = node.get_input_or_output(ioid)
+
+        if name is not None:
+            if len(name) == 0:
+                name = io.uuid
+            io.name = name
+
+        if hidden is not None:
+            if len(io.connections) > 0:
+                hidden = False
+            io.hidden = hidden
+        return io
+
+    @requests_save
+    @exposed_method()
     def update_node_view(self, nid: str, data: NodeViewState):
         node = (
             self.get_node(nid)
@@ -2113,6 +2239,17 @@ class Worker(ABC):
         return io
 
     @exposed_method()
+    def update_io_value_options_at_path(
+        self, path: List[NodeSpacePathEntry], nid: str, ioid: str, options: ValueOptions
+    ):
+        """Update IO value options in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
+        io = node.get_input_or_output(ioid)
+        io.update_value_options(**options)
+        return io
+
+    @exposed_method()
     def set_io_value(self, nid: str, ioid: str, value: Any, set_default: bool = False):
         node = self.get_node(nid)
         io = node.get_input(ioid)
@@ -2122,8 +2259,34 @@ class Worker(ABC):
         return io.value
 
     @exposed_method()
+    def set_io_value_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        nid: str,
+        ioid: str,
+        value: Any,
+        set_default: bool = False,
+    ):
+        """Set an input value on a node in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
+        io = node.get_input(ioid)
+        if set_default:
+            io.set_default(value)
+        io.set_value(value)
+        return io.value
+
+    @exposed_method()
     def get_io_value(self, nid: str, ioid: str):
         node = self.get_node(nid)
+        io = node.get_input_or_output(ioid)
+        return JSONEncoder.apply_custom_encoding(io.value, preview=True)
+
+    @exposed_method()
+    def get_io_value_at_path(self, path: List[NodeSpacePathEntry], nid: str, ioid: str):
+        """Return a preview IO value from a node in the active nodespace path."""
+
+        node = self._get_node_at_path(path, nid)
         io = node.get_input_or_output(ioid)
         return JSONEncoder.apply_custom_encoding(io.value, preview=True)
 
@@ -2142,8 +2305,36 @@ class Worker(ABC):
         }
 
     @exposed_method()
+    def get_ios_values_at_path(
+        self, path: List[NodeSpacePathEntry], nid: str
+    ) -> Dict[str, Any]:
+        """Return preview values for all IOs on a node in the active path."""
+
+        node = self._get_node_at_path(path, nid)
+        return {
+            **{
+                ioid: JSONEncoder.apply_custom_encoding(io.value, preview=True)
+                for ioid, io in node.inputs.items()
+            },
+            **{
+                ioid: JSONEncoder.apply_custom_encoding(io.value, preview=True)
+                for ioid, io in node.outputs.items()
+            },
+        }
+
+    @exposed_method()
     def get_io_full_value(self, nid: str, ioid: str):
         node = self.get_node(nid)
+        io = node.get_input_or_output(ioid)
+        return ByteEncoder.encode(io.value, preview=False)
+
+    @exposed_method()
+    def get_io_full_value_at_path(
+        self, path: List[NodeSpacePathEntry], nid: str, ioid: str
+    ):
+        """Return the full encoded IO value from a node in the active path."""
+
+        node = self._get_node_at_path(path, nid)
         io = node.get_input_or_output(ioid)
         return ByteEncoder.encode(io.value, preview=False)
 
@@ -2186,6 +2377,25 @@ class Worker(ABC):
 
     @requests_save
     @exposed_method()
+    def connect_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        src_nid: str,
+        src_ioid: str,
+        trg_nid: str,
+        trg_ioid: str,
+        replace: bool = False,
+    ):
+        """Create an edge between two nodes in the active nodespace path."""
+
+        src = self._get_node_at_path(path, src_nid)
+        tgt = self._get_node_at_path(path, trg_nid)
+        srcio = src.get_input_or_output(src_ioid)
+        tgtio = tgt.get_input_or_output(trg_ioid)
+        return srcio.connect(tgtio, replace=replace)
+
+    @requests_save
+    @exposed_method()
     def remove_edge(
         self,
         src_nid: str,
@@ -2195,6 +2405,26 @@ class Worker(ABC):
     ):
         src = self.get_node(src_nid)
         tgt = self.get_node(trg_nid)
+        srcio = src.get_input_or_output(src_ioid)
+        tgtio = tgt.get_input_or_output(trg_ioid)
+
+        srcio.disconnect(tgtio)
+        return True
+
+    @requests_save
+    @exposed_method()
+    def disconnect_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        src_nid: str,
+        src_ioid: str,
+        trg_nid: str,
+        trg_ioid: str,
+    ):
+        """Remove an edge between two nodes in the active nodespace path."""
+
+        src = self._get_node_at_path(path, src_nid)
+        tgt = self._get_node_at_path(path, trg_nid)
         srcio = src.get_input_or_output(src_ioid)
         tgtio = tgt.get_input_or_output(trg_ioid)
 
@@ -2389,8 +2619,29 @@ class Worker(ABC):
         return self.nodespace.groups.get_all_groups()
 
     @exposed_method()
+    def group_nodes_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        node_ids: List[str],
+        group_ids: List[str],
+    ):
+        """Create a legacy visual group in the active nodespace path."""
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        nodespace.groups.group_together(node_ids, group_ids)
+
+        return nodespace.groups.get_all_groups()
+
+    @exposed_method()
     def get_groups(self):
         return self.nodespace.groups.serialize()
+
+    @exposed_method()
+    def get_groups_at_path(self, path: List[NodeSpacePathEntry]):
+        """Return legacy visual groups from the active nodespace path."""
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        return nodespace.groups.serialize()
 
     @requests_save
     @exposed_method()
@@ -2409,9 +2660,39 @@ class Worker(ABC):
 
         return ans
 
+    @requests_save
+    @exposed_method()
+    def update_group_at_path(
+        self, path: List[NodeSpacePathEntry], gid: str, data: NodeGroup
+    ):
+        """Update a legacy visual group in the active nodespace path."""
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        try:
+            group = nodespace.groups.get_group(gid)
+        except Exception:
+            return {"error": f"Group with id {gid} not found"}
+        if not group:
+            raise ValueError(f"Group with id {gid} not found")
+        ans = {}
+
+        if "position" in data:
+            group["position"] = [float(data["position"][0]), float(data["position"][1])]
+            ans["position"] = group["position"]
+
+        return ans
+
     @exposed_method()
     def remove_group(self, gid: str):
         self.nodespace.groups.remove_group(gid)
+        return True
+
+    @exposed_method()
+    def remove_group_at_path(self, path: List[NodeSpacePathEntry], gid: str):
+        """Remove a legacy visual group from the active nodespace path."""
+
+        nodespace, _ = self._resolve_nodespace_path(path)
+        nodespace.groups.remove_group(gid)
         return True
 
 

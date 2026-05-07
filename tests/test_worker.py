@@ -427,7 +427,7 @@ async def test_worker_get_nodespace_at_path_returns_root_snapshot(worker_case):
 @funcnodes_test
 async def test_worker_get_nodespace_at_path_returns_group_snapshot(worker_case):
     group = fn.GroupNode(uuid="group-node", name="Group Node")
-    inner = testnode(uuid="inner-node")
+    inner = testnode(uuid="inner-node", trigger_on_create=False)
     group.inner_nodespace.add_node_instance(inner)
     worker_case.nodespace.add_node_instance(group)
 
@@ -451,6 +451,81 @@ async def test_worker_get_nodespace_at_path_rejects_non_group_node(worker_case):
         worker_case.get_nodespace_at_path(
             [{"groupNodeId": node.uuid, "label": "Not a group"}]
         )
+
+
+@funcnodes_test
+async def test_worker_update_node_at_path_updates_group_internal_node(worker_case):
+    """Path-aware node updates should mutate the group's inner nodespace."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    inner = testnode(uuid="inner-node")
+    group.inner_nodespace.add_node_instance(inner)
+    worker_case.nodespace.add_node_instance(group)
+
+    worker_case.update_node_at_path(
+        [{"groupNodeId": "group-node", "label": "Group Node"}],
+        "inner-node",
+        {"name": "Updated Inner"},
+    )
+
+    assert group.inner_nodespace.get_node_by_id("inner-node").name == "Updated Inner"
+
+
+@funcnodes_test
+async def test_worker_connect_at_path_connects_group_internal_nodes(worker_case):
+    """Path-aware edge creation should connect nodes inside the group."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    source = testnode(uuid="inner-source", trigger_on_create=False)
+    target = testnode(uuid="inner-target", trigger_on_create=False)
+    group.inner_nodespace.add_node_instance(source)
+    group.inner_nodespace.add_node_instance(target)
+    worker_case.nodespace.add_node_instance(group)
+
+    worker_case.connect_at_path(
+        [{"groupNodeId": "group-node", "label": "Group Node"}],
+        "inner-source",
+        "out",
+        "inner-target",
+        "a",
+    )
+
+    assert group.inner_nodespace.serialize_edges() == [
+        ("inner-source", "out", "inner-target", "a")
+    ]
+
+
+@funcnodes_test
+async def test_worker_remove_node_at_path_removes_group_internal_node(worker_case):
+    """Path-aware node removal should delete nodes from the group internals."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    inner = testnode(uuid="inner-node", trigger_on_create=False)
+    group.inner_nodespace.add_node_instance(inner)
+    worker_case.nodespace.add_node_instance(group)
+
+    worker_case.remove_node_at_path(
+        [{"groupNodeId": "group-node", "label": "Group Node"}],
+        "inner-node",
+    )
+
+    with pytest.raises(ValueError):
+        group.inner_nodespace.get_node_by_id("inner-node")
+
+
+@funcnodes_test
+async def test_worker_io_value_at_path_targets_group_internal_node(worker_case):
+    """Path-aware IO commands should read and write an internal node IO."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    inner = testnode(uuid="inner-node", trigger_on_create=False)
+    group.inner_nodespace.add_node_instance(inner)
+    worker_case.nodespace.add_node_instance(group)
+    path = [{"groupNodeId": "group-node", "label": "Group Node"}]
+
+    worker_case.set_io_value_at_path(path, "inner-node", "a", 5, set_default=True)
+
+    assert worker_case.get_io_value_at_path(path, "inner-node", "a") == 5
 
 
 @funcnodes_test
