@@ -167,6 +167,22 @@ class ExtendedFullNodeJSON(FullNodeJSON):
     frontend: Optional[NodeViewState]
 
 
+class NodeSpacePathEntry(TypedDict):
+    """One executable group segment in a frontend nodespace path."""
+
+    groupNodeId: str
+    label: str
+
+
+class EditableNodeSpaceSnapshot(TypedDict):
+    """Path-aware nodespace snapshot consumed by the React frontend."""
+
+    path: List[NodeSpacePathEntry]
+    nodes: List[ExtendedFullNodeJSON]
+    edges: List[Tuple[str, str, str, str]]
+    groups: Dict[str, NodeGroup]
+
+
 JSONMessage = Union[CmdMessage, ResultMessage, ErrorMessage, ProgressStateMessage]
 
 EXTERNALWORKERLIB = "_external_worker"
@@ -1329,6 +1345,58 @@ class Worker(ABC):
                 )
 
         return nodes
+
+    def _resolve_nodespace_path(
+        self, path: List[NodeSpacePathEntry]
+    ) -> Tuple[NodeSpace, List[NodeSpacePathEntry]]:
+        """Resolve a frontend executable group path to its target `NodeSpace`.
+
+        Args:
+            path: Ordered group-node path from the root nodespace.
+
+        Returns:
+            The resolved `NodeSpace` and a normalized path copy.
+
+        Raises:
+            ValueError: If any path segment does not point to a `GroupNode`.
+        """
+
+        nodespace = self.nodespace
+        normalized_path: List[NodeSpacePathEntry] = []
+        for entry in path:
+            group_id = entry["groupNodeId"]
+            node = nodespace.get_node_by_id(group_id)
+            if not isinstance(node, fn.GroupNode):
+                raise ValueError(f"Node '{group_id}' is not a GroupNode")
+            normalized_path.append(
+                NodeSpacePathEntry(
+                    groupNodeId=group_id,
+                    label=entry.get("label") or node.name or group_id,
+                )
+            )
+            nodespace = node.inner_nodespace
+        return nodespace, normalized_path
+
+    @exposed_method()
+    def get_nodespace_at_path(
+        self, path: List[NodeSpacePathEntry]
+    ) -> EditableNodeSpaceSnapshot:
+        """Return a serialized snapshot for the root or nested group nodespace.
+
+        The root nodespace is selected by an empty path. Non-empty paths are
+        resolved by walking executable `GroupNode.inner_nodespace` references.
+        """
+
+        nodespace, normalized_path = self._resolve_nodespace_path(path)
+        return EditableNodeSpaceSnapshot(
+            path=normalized_path,
+            nodes=[
+                ExtendedFullNodeJSON(**nodedata, frontend=None)
+                for nodedata in nodespace.full_nodes_serialize()
+            ],
+            edges=nodespace.serialize_edges(),
+            groups=nodespace.serialize_groups(),
+        )
 
     @exposed_method()
     def get_edges(self) -> List[Tuple[str, str, str, str]]:

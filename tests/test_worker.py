@@ -413,6 +413,47 @@ async def test_worker_add_node(worker_case):
 
 
 @funcnodes_test
+async def test_worker_get_nodespace_at_path_returns_root_snapshot(worker_case):
+    node = create_test_node(worker_case)
+
+    snapshot = worker_case.get_nodespace_at_path([])
+
+    assert snapshot["path"] == []
+    assert [serialized["id"] for serialized in snapshot["nodes"]] == [node.uuid]
+    assert snapshot["edges"] == []
+    assert snapshot["groups"] == {}
+
+
+@funcnodes_test
+async def test_worker_get_nodespace_at_path_returns_group_snapshot(worker_case):
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    inner = testnode(uuid="inner-node")
+    group.inner_nodespace.add_node_instance(inner)
+    worker_case.nodespace.add_node_instance(group)
+
+    snapshot = worker_case.get_nodespace_at_path(
+        [{"groupNodeId": "group-node", "label": "Group Node"}]
+    )
+
+    assert snapshot["path"] == [{"groupNodeId": "group-node", "label": "Group Node"}]
+    assert [serialized["id"] for serialized in snapshot["nodes"]] == [
+        group.group_input_node_uuid,
+        group.group_output_node_uuid,
+        "inner-node",
+    ]
+
+
+@funcnodes_test
+async def test_worker_get_nodespace_at_path_rejects_non_group_node(worker_case):
+    node = create_test_node(worker_case)
+
+    with pytest.raises(ValueError, match="not a GroupNode"):
+        worker_case.get_nodespace_at_path(
+            [{"groupNodeId": node.uuid, "label": "Not a group"}]
+        )
+
+
+@funcnodes_test
 async def test_worker_remove_node(worker_case):
     node = create_test_node(worker_case)
     worker_case.remove_node(node.uuid)
