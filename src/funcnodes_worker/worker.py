@@ -1391,6 +1391,27 @@ class Worker(ABC):
         nodespace, _ = self._resolve_nodespace_path(path)
         return nodespace.get_node_by_id(nid)
 
+    def _get_group_node_at_path(
+        self, path: List[NodeSpacePathEntry], group_node_id: str
+    ) -> fn.GroupNode:
+        """Return an executable group node from a resolved parent nodespace.
+
+        Args:
+            path: Ordered executable group path to the parent nodespace.
+            group_node_id: UUID of the public `GroupNode` in that parent.
+
+        Returns:
+            The resolved executable `GroupNode`.
+
+        Raises:
+            ValueError: If the resolved node is not a `GroupNode`.
+        """
+
+        node = self._get_node_at_path(path, group_node_id)
+        if not isinstance(node, fn.GroupNode):
+            raise ValueError(f"Node '{group_node_id}' is not a GroupNode")
+        return node
+
     @exposed_method()
     def get_nodespace_at_path(
         self, path: List[NodeSpacePathEntry]
@@ -2696,6 +2717,119 @@ class Worker(ABC):
 
         nodespace, _ = self._resolve_nodespace_path(path)
         group = nodespace.materialize_group(legacy_group_id)
+        return group._repr_json_()
+
+    @requests_save
+    @exposed_method()
+    def add_group_input_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        group_node_id: str,
+        options: Dict[str, Any],
+    ) -> FullNodeJSON:
+        """Add one public input boundary to an executable group node.
+
+        Args:
+            path: Frontend path to the nodespace containing the group node.
+            group_node_id: UUID of the executable group node to update.
+            options: `GroupNode.add_group_input` keyword options, including
+                the stable boundary `id` or `uuid`.
+
+        Returns:
+            Serialized state for the updated executable group node.
+        """
+
+        group = self._get_group_node_at_path(path, group_node_id)
+        group.add_group_input(**options)
+        return group._repr_json_()
+
+    @requests_save
+    @exposed_method()
+    def add_group_output_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        group_node_id: str,
+        options: Dict[str, Any],
+    ) -> FullNodeJSON:
+        """Add one public output boundary to an executable group node.
+
+        Args:
+            path: Frontend path to the nodespace containing the group node.
+            group_node_id: UUID of the executable group node to update.
+            options: `GroupNode.add_group_output` keyword options, including
+                the stable boundary `id` or `uuid`.
+
+        Returns:
+            Serialized state for the updated executable group node.
+        """
+
+        group = self._get_group_node_at_path(path, group_node_id)
+        group.add_group_output(**options)
+        return group._repr_json_()
+
+    @requests_save
+    @exposed_method()
+    def update_group_io_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        group_node_id: str,
+        boundary_id: str,
+        options: Dict[str, Any],
+    ) -> FullNodeJSON:
+        """Update metadata for one public group boundary IO.
+
+        Args:
+            path: Frontend path to the nodespace containing the group node.
+            group_node_id: UUID of the executable group node to update.
+            boundary_id: Stable public input or output boundary id.
+            options: Boundary metadata passed to the matching group update
+                method.
+
+        Returns:
+            Serialized state for the updated executable group node.
+
+        Raises:
+            ValueError: If `boundary_id` is not a public group boundary.
+        """
+
+        group = self._get_group_node_at_path(path, group_node_id)
+        if boundary_id in group.input_bindings:
+            group.update_group_input(boundary_id, **options)
+        elif boundary_id in group.output_bindings:
+            group.update_group_output(boundary_id, **options)
+        else:
+            raise ValueError(f"Group boundary '{boundary_id}' not found")
+        return group._repr_json_()
+
+    @requests_save
+    @exposed_method()
+    def remove_group_io_at_path(
+        self,
+        path: List[NodeSpacePathEntry],
+        group_node_id: str,
+        boundary_id: str,
+    ) -> FullNodeJSON:
+        """Remove one public group boundary IO and its affected edges.
+
+        Args:
+            path: Frontend path to the nodespace containing the group node.
+            group_node_id: UUID of the executable group node to update.
+            boundary_id: Stable public input or output boundary id.
+
+        Returns:
+            Serialized state for the updated executable group node.
+
+        Raises:
+            ValueError: If `boundary_id` is not a public group boundary.
+        """
+
+        group = self._get_group_node_at_path(path, group_node_id)
+        if boundary_id in group.input_bindings:
+            group.remove_group_input(boundary_id)
+        elif boundary_id in group.output_bindings:
+            group.remove_group_output(boundary_id)
+        else:
+            raise ValueError(f"Group boundary '{boundary_id}' not found")
         return group._repr_json_()
 
     @exposed_method()

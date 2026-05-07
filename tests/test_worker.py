@@ -601,6 +601,101 @@ async def test_worker_materialize_group_at_path_converts_legacy_group(worker_cas
 
 
 @funcnodes_test
+async def test_worker_add_group_input_at_path_updates_public_and_gateway_io(worker_case):
+    """Path-aware group input creation should update both boundary IO sides."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    worker_case.nodespace.add_node_instance(group)
+
+    worker_case.add_group_input_at_path(
+        [],
+        "group-node",
+        {"id": "value", "name": "Value", "type": "int", "does_trigger": False},
+    )
+
+    assert group.inputs["value"].name == "Value"
+    assert group.group_input_node.outputs["value"].name == "Value"
+
+
+@funcnodes_test
+async def test_worker_add_group_output_at_path_updates_public_and_gateway_io(worker_case):
+    """Path-aware group output creation should update both boundary IO sides."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    worker_case.nodespace.add_node_instance(group)
+
+    worker_case.add_group_output_at_path(
+        [],
+        "group-node",
+        {"id": "result", "name": "Result", "type": "float"},
+    )
+
+    assert group.outputs["result"].name == "Result"
+    assert group.group_output_node.inputs["result"].name == "Result"
+
+
+@funcnodes_test
+async def test_worker_update_group_io_at_path_renames_public_and_gateway_io(worker_case):
+    """Path-aware boundary rename should update public and gateway IO."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    group.add_group_input(id="value", name="Value", type=int, does_trigger=False)
+    worker_case.nodespace.add_node_instance(group)
+
+    worker_case.update_group_io_at_path(
+        [],
+        "group-node",
+        "value",
+        {"name": "Renamed Value"},
+    )
+
+    assert group.inputs["value"].name == "Renamed Value"
+    assert group.group_input_node.outputs["value"].name == "Renamed Value"
+
+
+@funcnodes_test
+async def test_worker_remove_group_io_at_path_removes_public_gateway_and_edges(
+    worker_case,
+):
+    """Path-aware boundary removal should remove IO and affected edges."""
+
+    source = testnode(uuid="source-node", trigger_on_create=False)
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    group.add_group_input(id="value", name="Value", type=int, does_trigger=False)
+    worker_case.nodespace.add_node_instance(source)
+    worker_case.nodespace.add_node_instance(group)
+    worker_case.add_edge(source.uuid, "out", group.uuid, "value")
+
+    worker_case.remove_group_io_at_path([], "group-node", "value")
+
+    assert "value" not in group.inputs
+    assert "value" not in group.group_input_node.outputs
+    assert worker_case.nodespace.serialize_edges() == []
+
+
+@funcnodes_test
+async def test_worker_add_group_input_at_path_rejects_duplicate_without_mutation(
+    worker_case,
+):
+    """Duplicate boundary IDs should fail without changing the group shape."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    group.add_group_input(id="value", name="Value", type=int, does_trigger=False)
+    worker_case.nodespace.add_node_instance(group)
+    input_ids_before = list(group.inputs)
+
+    with pytest.raises(ValueError, match="already exists"):
+        worker_case.add_group_input_at_path(
+            [],
+            "group-node",
+            {"id": "value", "name": "Duplicate", "type": "float"},
+        )
+
+    assert list(group.inputs) == input_ids_before
+    assert group.inputs["value"].name == "Value"
+
+
+@funcnodes_test
 async def test_worker_remove_node(worker_case):
     node = create_test_node(worker_case)
     worker_case.remove_node(node.uuid)
