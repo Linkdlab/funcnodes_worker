@@ -2826,8 +2826,8 @@ class Worker(ABC):
         Args:
             path: Frontend path to the nodespace containing the group node.
             group_node_id: UUID of the executable group node to update.
-            options: `GroupNode.add_group_input` keyword options, including
-                the stable boundary `id` or `uuid`.
+            options: `GroupNode.add_group_input` keyword options. The backend
+                auto-generates a stable boundary id when `id`/`uuid` is omitted.
 
         Returns:
             Serialized state for the updated executable group node.
@@ -2850,8 +2850,8 @@ class Worker(ABC):
         Args:
             path: Frontend path to the nodespace containing the group node.
             group_node_id: UUID of the executable group node to update.
-            options: `GroupNode.add_group_output` keyword options, including
-                the stable boundary `id` or `uuid`.
+            options: `GroupNode.add_group_output` keyword options. The backend
+                auto-generates a stable boundary id when `id`/`uuid` is omitted.
 
         Returns:
             Serialized state for the updated executable group node.
