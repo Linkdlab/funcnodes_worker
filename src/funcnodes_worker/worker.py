@@ -701,17 +701,15 @@ class Worker(ABC):
         """Expose executable group node classes in a worker nodespace library.
 
         Saved flows can contain `GroupNode` instances even when the user has not
-        added the group class through an external shelf. Registering the built-in
-        group classes keeps load/deserialize able to materialize executable
-        groups instead of falling back to placeholders.
+        added the group class through an external shelf. Gateway classes are
+        registered globally for group payload deserialization, but only
+        `GroupNode` is placed in the visible library because gateways are
+        internal implementation nodes managed by each group.
         """
 
         fn.node.register_node(fn.GroupNode)
         fn.node.register_node(fn.GroupInputNode)
         fn.node.register_node(fn.GroupOutputNode)
-        nodespace.lib.add_node(fn.GroupNode, "groups")
-        nodespace.lib.add_node(fn.GroupInputNode, ["groups", "gateways"])
-        nodespace.lib.add_node(fn.GroupOutputNode, ["groups", "gateways"])
 
     @property
     def venvmanager(self):

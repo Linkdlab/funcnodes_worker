@@ -251,6 +251,8 @@ async def test_worker_case_initialization(worker_case, worker_class):
     assert hasattr(worker_case, "nodespace")
     assert hasattr(worker_case, "loop_manager")
     assert worker_case.nodespace.lib.has_node_id("test_node")
+    assert not worker_case.nodespace.lib.has_node_id("funcnodes_core.group.input")
+    assert not worker_case.nodespace.lib.has_node_id("funcnodes_core.group.output")
 
 
 @funcnodes_test
@@ -499,6 +501,13 @@ async def test_worker_get_nodespace_at_path_returns_group_snapshot(worker_case):
         group.group_output_node_uuid,
         "inner-node",
     ]
+    nodes_by_id = {serialized["id"]: serialized for serialized in snapshot["nodes"]}
+    assert nodes_by_id[group.group_input_node_uuid]["properties"][
+        "frontend:pos"
+    ] == [0, 0]
+    assert nodes_by_id[group.group_output_node_uuid]["properties"][
+        "frontend:pos"
+    ] == [480, 0]
 
 
 @funcnodes_test
@@ -627,6 +636,36 @@ async def test_worker_remove_node_at_path_removes_group_internal_node(worker_cas
 
     with pytest.raises(ValueError):
         group.inner_nodespace.get_node_by_id("inner-node")
+
+
+@funcnodes_test
+async def test_worker_add_node_at_path_rejects_manual_group_gateways(worker_case):
+    """Users should not add group gateway implementation nodes manually."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    worker_case.nodespace.add_node_instance(group)
+    path = [{"groupNodeId": "group-node", "label": "Group Node"}]
+    group.inner_nodespace.lib.add_node(fn.GroupInputNode, ["groups", "gateways"])
+    group.inner_nodespace.lib.add_node(fn.GroupOutputNode, ["groups", "gateways"])
+
+    with pytest.raises(ValueError, match="managed by GroupNode"):
+        worker_case.add_node_at_path(path, "funcnodes_core.group.input")
+    with pytest.raises(ValueError, match="managed by GroupNode"):
+        worker_case.add_node_at_path(path, "funcnodes_core.group.output")
+
+
+@funcnodes_test
+async def test_worker_remove_node_at_path_rejects_owned_group_gateways(worker_case):
+    """Users should not remove the required gateway nodes from a group."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    worker_case.nodespace.add_node_instance(group)
+    path = [{"groupNodeId": "group-node", "label": "Group Node"}]
+
+    with pytest.raises(ValueError, match="managed by GroupNode"):
+        worker_case.remove_node_at_path(path, group.group_input_node_uuid)
+    with pytest.raises(ValueError, match="managed by GroupNode"):
+        worker_case.remove_node_at_path(path, group.group_output_node_uuid)
 
 
 @funcnodes_test
