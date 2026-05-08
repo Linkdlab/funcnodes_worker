@@ -639,6 +639,46 @@ async def test_worker_remove_node_at_path_removes_group_internal_node(worker_cas
 
 
 @funcnodes_test
+async def test_worker_add_node_at_path_uses_shared_group_library(worker_case):
+    """Path-aware node creation should use the worker library inside groups."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    worker_case.nodespace.add_node_instance(group)
+
+    created = worker_case.add_node_at_path(
+        [{"groupNodeId": "group-node", "label": "Group Node"}],
+        "test_node",
+        uuid="inner-node",
+    )
+
+    assert created is group.inner_nodespace.get_node_by_id("inner-node")
+    assert group.inner_nodespace.lib is worker_case.nodespace.lib
+
+
+@funcnodes_test
+async def test_worker_add_node_at_path_uses_shared_nested_group_library(worker_case):
+    """Nested group paths should use the same worker library for new nodes."""
+
+    outer = fn.GroupNode(uuid="outer-group", name="Outer Group")
+    nested = fn.GroupNode(uuid="nested-group", name="Nested Group")
+    outer.inner_nodespace.add_node_instance(nested)
+    worker_case.nodespace.add_node_instance(outer)
+
+    created = worker_case.add_node_at_path(
+        [
+            {"groupNodeId": "outer-group", "label": "Outer Group"},
+            {"groupNodeId": "nested-group", "label": "Nested Group"},
+        ],
+        "test_node",
+        uuid="nested-inner-node",
+    )
+
+    assert created is nested.inner_nodespace.get_node_by_id("nested-inner-node")
+    assert outer.inner_nodespace.lib is worker_case.nodespace.lib
+    assert nested.inner_nodespace.lib is worker_case.nodespace.lib
+
+
+@funcnodes_test
 async def test_worker_add_node_at_path_rejects_manual_group_gateways(worker_case):
     """Users should not add group gateway implementation nodes manually."""
 
