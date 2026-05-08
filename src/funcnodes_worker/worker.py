@@ -635,7 +635,6 @@ class Worker(ABC):
         self._worker_dependencies: Dict[str, WorkerDict] = {}
         self.loop_manager = LoopManager(self)
         self.nodespace = NodeSpace()
-        self._register_builtin_group_nodes(self.nodespace)
 
         self.nodespace_loop = NodeSpaceLoop(self.nodespace, delay=nodespace_delay)
         self.loop_manager.add_loop(self.nodespace_loop)
@@ -696,20 +695,6 @@ class Worker(ABC):
             "blocking": False,
         }
         self._save_disabled = False
-
-    def _register_builtin_group_nodes(self, nodespace: NodeSpace) -> None:
-        """Expose executable group node classes in a worker nodespace library.
-
-        Saved flows can contain `GroupNode` instances even when the user has not
-        added the group class through an external shelf. Gateway classes are
-        registered globally for group payload deserialization, but only
-        `GroupNode` is placed in the visible library because gateways are
-        internal implementation nodes managed by each group.
-        """
-
-        fn.node.register_node(fn.GroupNode)
-        fn.node.register_node(fn.GroupInputNode)
-        fn.node.register_node(fn.GroupOutputNode)
 
     @property
     def venvmanager(self):

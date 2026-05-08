@@ -251,9 +251,7 @@ async def test_worker_case_initialization(worker_case, worker_class):
     assert hasattr(worker_case, "nodespace")
     assert hasattr(worker_case, "loop_manager")
     assert worker_case.nodespace.lib.has_node_id("test_node")
-    assert not worker_case.nodespace.lib.has_node_id("funcnodes_core.group.input")
-    assert not worker_case.nodespace.lib.has_node_id("funcnodes_core.group.output")
-
+    assert worker_case.nodespace.lib.has_node_id("funcnodes_core.group")
 
 @funcnodes_test
 async def test_worker_case_uuid(worker_case):
@@ -395,29 +393,7 @@ async def test_worker_full_state(worker_case):
                                 "node_name": "Group",
                             }
                         ],
-                        "subshelves": [
-                            {
-                                "nodes": [
-                                    {
-                                        "node_id": "funcnodes_core.group.input",
-                                        "inputs": [],
-                                        "outputs": [],
-                                        "description": None,
-                                        "node_name": "Group Input",
-                                    },
-                                    {
-                                        "node_id": "funcnodes_core.group.output",
-                                        "inputs": [],
-                                        "outputs": [],
-                                        "description": None,
-                                        "node_name": "Group Output",
-                                    },
-                                ],
-                                "subshelves": [],
-                                "name": "gateways",
-                                "description": "",
-                            }
-                        ],
+                        "subshelves": [],
                         "name": "groups",
                         "description": "",
                     },
