@@ -2008,6 +2008,7 @@ class Worker(ABC):
         ioid: str,
         name: Optional[str] = None,
         hidden: Optional[bool] = None,
+        does_trigger: Optional[bool] = None,
     ):
         node = self.get_node(nid)
         io = node.get_input_or_output(ioid)
@@ -2021,6 +2022,8 @@ class Worker(ABC):
             if len(io.connections) > 0:
                 hidden = False
             io.hidden = hidden
+        if does_trigger is not None:
+            io.does_trigger=does_trigger
         return io
 
     @requests_save
