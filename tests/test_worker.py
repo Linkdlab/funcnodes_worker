@@ -774,7 +774,7 @@ async def test_worker_add_group_input_at_path_updates_public_and_gateway_io(work
 
 @funcnodes_test
 async def test_worker_add_group_input_at_path_auto_generates_untyped_io(worker_case):
-    """Path-aware group input creation should accept name-only boundaries."""
+    """Path-aware group input creation should allocate numbered name-only IDs."""
 
     group = fn.GroupNode(uuid="group-node", name="Group Node")
     worker_case.nodespace.add_node_instance(group)
@@ -784,7 +784,7 @@ async def test_worker_add_group_input_at_path_auto_generates_untyped_io(worker_c
     boundary_id = next(
         io_id for io_id in group.inputs if io_id not in {"_triggerinput"}
     )
-    assert boundary_id.startswith("_")
+    assert boundary_id == "ip1"
     assert group.inputs[boundary_id].name == "Value"
     assert group.inputs[boundary_id].serialize()["type"] == "Any"
     assert group.group_input_node.outputs[boundary_id].name == "Value"
@@ -810,7 +810,7 @@ async def test_worker_add_group_output_at_path_updates_public_and_gateway_io(wor
 
 @funcnodes_test
 async def test_worker_add_group_output_at_path_auto_generates_untyped_io(worker_case):
-    """Path-aware group output creation should accept name-only boundaries."""
+    """Path-aware group output creation should allocate numbered name-only IDs."""
 
     group = fn.GroupNode(uuid="group-node", name="Group Node")
     worker_case.nodespace.add_node_instance(group)
@@ -820,7 +820,7 @@ async def test_worker_add_group_output_at_path_auto_generates_untyped_io(worker_
     boundary_id = next(
         io_id for io_id in group.outputs if io_id not in {"_triggeroutput"}
     )
-    assert boundary_id.startswith("_")
+    assert boundary_id == "op1"
     assert group.outputs[boundary_id].name == "Result"
     assert group.outputs[boundary_id].serialize()["type"] == "Any"
     assert group.group_output_node.inputs[boundary_id].name == "Result"
