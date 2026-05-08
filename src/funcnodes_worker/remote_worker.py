@@ -84,7 +84,14 @@ class RemoteWorker(Worker):
         self.loop_manager.async_call(
             self.send_byte_object(
                 result,
-                header=dict(node=_node.uuid, io=_io.uuid),
+                header=dict(
+                    node=_node.uuid,
+                    io=_io.uuid,
+                    path=json.dumps(
+                        self._get_nodespace_path_for_event_source(src),
+                        cls=JSONEncoder,
+                    ),
+                ),
                 type="io_value",
                 preview=True,
             )
@@ -108,7 +115,7 @@ class RemoteWorker(Worker):
         event_bundle: NodeSpaceEvent = {
             "type": "nsevent",
             "event": event,
-            "data": kwargs,
+            "data": self._decorate_nodespace_event_data(event, src, kwargs),
         }
         if event in ("after_set_value", "before_set_value"):
             event_bundle = JSONEncoder.apply_custom_encoding(event_bundle, preview=True)

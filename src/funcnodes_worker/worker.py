@@ -635,6 +635,7 @@ class Worker(ABC):
         self._worker_dependencies: Dict[str, WorkerDict] = {}
         self.loop_manager = LoopManager(self)
         self.nodespace = NodeSpace()
+        self._register_builtin_group_nodes(self.nodespace)
 
         self.nodespace_loop = NodeSpaceLoop(self.nodespace, delay=nodespace_delay)
         self.loop_manager.add_loop(self.nodespace_loop)
@@ -695,6 +696,22 @@ class Worker(ABC):
             "blocking": False,
         }
         self._save_disabled = False
+
+    def _register_builtin_group_nodes(self, nodespace: NodeSpace) -> None:
+        """Expose executable group node classes in a worker nodespace library.
+
+        Saved flows can contain `GroupNode` instances even when the user has not
+        added the group class through an external shelf. Registering the built-in
+        group classes keeps load/deserialize able to materialize executable
+        groups instead of falling back to placeholders.
+        """
+
+        fn.node.register_node(fn.GroupNode)
+        fn.node.register_node(fn.GroupInputNode)
+        fn.node.register_node(fn.GroupOutputNode)
+        nodespace.lib.add_node(fn.GroupNode, "groups")
+        nodespace.lib.add_node(fn.GroupInputNode, ["groups", "gateways"])
+        nodespace.lib.add_node(fn.GroupOutputNode, ["groups", "gateways"])
 
     @property
     def venvmanager(self):
@@ -1376,6 +1393,83 @@ class Worker(ABC):
             )
             nodespace = node.inner_nodespace
         return nodespace, normalized_path
+
+    def _find_nodespace_path_for_event_source(
+        self,
+        target: NodeSpace,
+        current: NodeSpace,
+        path: List[NodeSpacePathEntry],
+    ) -> Optional[List[NodeSpacePathEntry]]:
+        """Recursively resolve a nodespace object to a frontend path.
+
+        Args:
+            target: Nodespace instance that emitted an event.
+            current: Nodespace currently being inspected.
+            path: Frontend path to `current`.
+
+        Returns:
+            A path copy when `target` is found, otherwise `None`.
+        """
+
+        if current is target:
+            return [NodeSpacePathEntry(**entry) for entry in path]
+
+        for node in current.nodes:
+            if not isinstance(node, fn.GroupNode):
+                continue
+            child_path = [
+                *path,
+                NodeSpacePathEntry(
+                    groupNodeId=node.uuid,
+                    label=node.name or node.uuid,
+                ),
+            ]
+            resolved = self._find_nodespace_path_for_event_source(
+                target,
+                node.inner_nodespace,
+                child_path,
+            )
+            if resolved is not None:
+                return resolved
+        return None
+
+    def _get_nodespace_path_for_event_source(
+        self, src: NodeSpace
+    ) -> List[NodeSpacePathEntry]:
+        """Return the frontend nodespace path for an event source.
+
+        Unknown sources fall back to the root path so legacy event handling
+        remains conservative instead of failing while packaging an event.
+        """
+
+        return self._find_nodespace_path_for_event_source(src, self.nodespace, []) or []
+
+    def _decorate_nodespace_event_data(
+        self, event: str, src: NodeSpace, data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Add path metadata to a nodespace event payload for the frontend.
+
+        Inner group events are emitted by the parent nodespace on behalf of the
+        group node. Those events therefore include both the parent path and the
+        child group path that owns the internal node update.
+        """
+
+        decorated = dict(data)
+        parent_path = self._get_nodespace_path_for_event_source(src)
+        if event.startswith("inner_") and isinstance(decorated.get("node"), str):
+            group = src.get_node_by_id(cast(str, decorated["node"]))
+            label = group.name if group is not None and group.name else decorated["node"]
+            decorated["parent_path"] = parent_path
+            decorated["path"] = [
+                *parent_path,
+                NodeSpacePathEntry(
+                    groupNodeId=cast(str, decorated["node"]),
+                    label=cast(str, label),
+                ),
+            ]
+        else:
+            decorated["path"] = parent_path
+        return decorated
 
     def _get_node_at_path(self, path: List[NodeSpacePathEntry], nid: str) -> Node:
         """Return a node from the root or nested executable group nodespace.

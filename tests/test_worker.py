@@ -13,6 +13,7 @@ import pytest
 import funcnodes_core as fn
 
 from funcnodes_worker import Worker, FuncNodesExternalWorker, ExternalWorkerConfig
+from funcnodes_worker.remote_worker import RemoteWorker
 from funcnodes_worker.worker import WorkerState, NodeViewState
 from pydantic import Field
 
@@ -26,6 +27,25 @@ class _TestWorkerClass(Worker):
 
     def on_nodespaceevent(self, event, **kwargs):
         """handle nodespace events"""
+
+
+class _CapturingRemoteWorker(RemoteWorker):
+    def __init__(self, *args, **kwargs):
+        """Initialize a remote worker that records outbound test messages."""
+
+        super().__init__(*args, **kwargs)
+        self.sent_messages = []
+        self.sent_byte_headers = []
+
+    async def sendmessage(self, msg: str, **kwargs):
+        """Capture one JSON message that would be sent to the frontend."""
+
+        self.sent_messages.append(json.loads(msg))
+
+    async def send_bytes(self, data: bytes, header: dict, **sendkwargs):
+        """Capture one binary message header for IO value event tests."""
+
+        self.sent_byte_headers.append(header)
 
 
 @fn.NodeDecorator(node_id="test_node")
@@ -354,6 +374,8 @@ async def test_worker_run_cmd(worker_case):
 
 @funcnodes_test
 async def test_worker_full_state(worker_case):
+    """Full state should expose test and built-in executable group shelves."""
+
     ser = fn.JSONEncoder.apply_custom_encoding(worker_case.full_state())
     expected = {
         "backend": {
@@ -361,6 +383,42 @@ async def test_worker_full_state(worker_case):
             "prop": {},
             "lib": {
                 "shelves": [
+                    {
+                        "nodes": [
+                            {
+                                "node_id": "funcnodes_core.group",
+                                "inputs": [],
+                                "outputs": [],
+                                "description": None,
+                                "node_name": "Group",
+                            }
+                        ],
+                        "subshelves": [
+                            {
+                                "nodes": [
+                                    {
+                                        "node_id": "funcnodes_core.group.input",
+                                        "inputs": [],
+                                        "outputs": [],
+                                        "description": None,
+                                        "node_name": "Group Input",
+                                    },
+                                    {
+                                        "node_id": "funcnodes_core.group.output",
+                                        "inputs": [],
+                                        "outputs": [],
+                                        "description": None,
+                                        "node_name": "Group Output",
+                                    },
+                                ],
+                                "subshelves": [],
+                                "name": "gateways",
+                                "description": "",
+                            }
+                        ],
+                        "name": "groups",
+                        "description": "",
+                    },
                     {
                         "nodes": [
                             {
@@ -451,6 +509,64 @@ async def test_worker_get_nodespace_at_path_rejects_non_group_node(worker_case):
         worker_case.get_nodespace_at_path(
             [{"groupNodeId": node.uuid, "label": "Not a group"}]
         )
+
+
+@funcnodes_test
+async def test_worker_resolves_nested_nodespace_event_paths(worker_case):
+    """Worker event path helpers should identify nested group nodespaces."""
+
+    outer = fn.GroupNode(uuid="outer-group", name="Outer Group")
+    nested = fn.GroupNode(uuid="nested-group", name="Nested Group")
+    outer.inner_nodespace.add_node_instance(nested)
+    worker_case.nodespace.add_node_instance(outer)
+
+    assert worker_case._get_nodespace_path_for_event_source(
+        nested.inner_nodespace
+    ) == [
+        {"groupNodeId": "outer-group", "label": "Outer Group"},
+        {"groupNodeId": "nested-group", "label": "Nested Group"},
+    ]
+
+
+@funcnodes_test
+async def test_remote_worker_adds_path_to_root_nodespace_events(tmp_path):
+    """Remote worker events should include the path that owns the event node."""
+
+    worker = _CapturingRemoteWorker(data_path=tmp_path, uuid="event-path-worker")
+    try:
+        bundle = worker.on_nodespaceevent(
+            "triggerstart",
+            worker.nodespace,
+            node="root-node",
+        )
+    finally:
+        worker.stop()
+
+    assert bundle["data"]["path"] == []
+
+
+@funcnodes_test
+async def test_remote_worker_adds_inner_path_to_bubbled_group_events(tmp_path):
+    """Bubbled group events should target the group's inner nodespace path."""
+
+    worker = _CapturingRemoteWorker(data_path=tmp_path, uuid="inner-event-path-worker")
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    worker.nodespace.add_node_instance(group)
+    try:
+        bundle = worker.on_nodespaceevent(
+            "inner_triggerstart",
+            worker.nodespace,
+            node="group-node",
+            inner_node="inner-node",
+            inner_event="triggerstart",
+        )
+    finally:
+        worker.stop()
+
+    assert bundle["data"]["parent_path"] == []
+    assert bundle["data"]["path"] == [
+        {"groupNodeId": "group-node", "label": "Group Node"}
+    ]
 
 
 @funcnodes_test
@@ -693,6 +809,151 @@ async def test_worker_add_group_input_at_path_rejects_duplicate_without_mutation
 
     assert list(group.inputs) == input_ids_before
     assert group.inputs["value"].name == "Value"
+
+
+@funcnodes_test
+async def test_worker_save_state_persists_group_internal_positions_and_edges(
+    worker_case,
+):
+    """Executable group save state should include edited internal view data."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    source = testnode(uuid="inner-source", trigger_on_create=False)
+    target = testnode(uuid="inner-target", trigger_on_create=False)
+    group.inner_nodespace.add_node_instance(source)
+    group.inner_nodespace.add_node_instance(target)
+    source.outputs["out"].connect(target.inputs["a"])
+    worker_case.nodespace.add_node_instance(group)
+
+    worker_case.update_node_at_path(
+        [{"groupNodeId": "group-node", "label": "Group Node"}],
+        "inner-source",
+        {"properties": {"frontend:pos": [32, 64], "frontend:size": [111, 222]}},
+    )
+
+    saved = worker_case.get_save_state()
+    saved_group = next(
+        node for node in saved["backend"]["nodes"] if node["id"] == "group-node"
+    )
+    payload = saved_group["properties"]["group"]
+    saved_inner_source = next(
+        node
+        for node in payload["inner_nodespace"]["nodes"]
+        if node["id"] == "inner-source"
+    )
+
+    assert saved_inner_source["properties"]["frontend:pos"] == [32, 64]
+    assert saved_inner_source["properties"]["frontend:size"] == [111, 222]
+    assert payload["inner_nodespace"]["edges"] == [
+        ["inner-source", "out", "inner-target", "a"]
+    ]
+    assert "inner-source" not in saved.get("view", {}).get("nodes", {})
+
+
+@funcnodes_test
+async def test_worker_save_load_restores_group_boundary_io(tmp_path, worker_case):
+    """Boundary IO edits should round-trip through worker save/load."""
+
+    group = fn.GroupNode(uuid="group-node", name="Group Node")
+    worker_case.nodespace.add_node_instance(group)
+    worker_case.add_group_input_at_path(
+        [],
+        "group-node",
+        {"id": "value", "name": "Value", "type": "int", "does_trigger": False},
+    )
+    worker_case.add_group_output_at_path(
+        [],
+        "group-node",
+        {"id": "result", "name": "Result", "type": "float"},
+    )
+    saved = worker_case.get_save_state()
+
+    loaded = _TestWorkerClass(
+        data_path=tmp_path / "boundary-loaded",
+        default_nodes=[testshelf],
+        uuid="boundary-loaded-worker",
+    )
+    try:
+        await loaded.load_data(saved)
+        loaded_group = loaded.nodespace.get_node_by_id("group-node")
+
+        assert isinstance(loaded_group, fn.GroupNode)
+        assert loaded_group.inputs["value"].name == "Value"
+        assert loaded_group.outputs["result"].name == "Result"
+        assert loaded_group.group_input_node.outputs["value"].name == "Value"
+        assert loaded_group.group_output_node.inputs["result"].name == "Result"
+    finally:
+        loaded.stop()
+
+
+@funcnodes_test
+async def test_worker_save_load_preserves_nested_group_navigation(
+    tmp_path,
+    worker_case,
+):
+    """Nested executable groups should be navigable after save/load."""
+
+    outer = fn.GroupNode(uuid="outer-group", name="Outer Group")
+    nested = fn.GroupNode(uuid="nested-group", name="Nested Group")
+    inner = testnode(uuid="nested-inner", trigger_on_create=False)
+    nested.inner_nodespace.add_node_instance(inner)
+    outer.inner_nodespace.add_node_instance(nested)
+    worker_case.nodespace.add_node_instance(outer)
+    saved = worker_case.get_save_state()
+
+    loaded = _TestWorkerClass(
+        data_path=tmp_path / "nested-loaded",
+        default_nodes=[testshelf],
+        uuid="nested-loaded-worker",
+    )
+    try:
+        await loaded.load_data(saved)
+        snapshot = loaded.get_nodespace_at_path(
+            [
+                {"groupNodeId": "outer-group", "label": "Outer Group"},
+                {"groupNodeId": "nested-group", "label": "Nested Group"},
+            ]
+        )
+
+        assert snapshot["path"] == [
+            {"groupNodeId": "outer-group", "label": "Outer Group"},
+            {"groupNodeId": "nested-group", "label": "Nested Group"},
+        ]
+        assert "nested-inner" in [node["id"] for node in snapshot["nodes"]]
+    finally:
+        loaded.stop()
+
+
+@funcnodes_test
+async def test_worker_save_load_preserves_legacy_visual_groups(
+    tmp_path,
+    worker_case,
+):
+    """Legacy NodeSpace.groups metadata should still round-trip."""
+
+    first = testnode(uuid="first-node", trigger_on_create=False)
+    second = testnode(uuid="second-node", trigger_on_create=False)
+    worker_case.nodespace.add_node_instance(first)
+    worker_case.nodespace.add_node_instance(second)
+    worker_case.nodespace.groups.group_together(
+        ["first-node", "second-node"], [], new_group_id="legacy-group"
+    )
+    saved = worker_case.get_save_state()
+
+    loaded = _TestWorkerClass(
+        data_path=tmp_path / "legacy-loaded",
+        default_nodes=[testshelf],
+        uuid="legacy-loaded-worker",
+    )
+    try:
+        await loaded.load_data(saved)
+
+        assert "legacy-group" in loaded.nodespace.groups.get_all_groups()
+        assert loaded.get_nodespace_at_path([])["groups"][
+            "legacy-group"
+        ]["node_ids"] == ["first-node", "second-node"]
+    finally:
+        loaded.stop()
 
 
 @funcnodes_test
